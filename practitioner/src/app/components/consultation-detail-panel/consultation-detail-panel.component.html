@@ -82,7 +82,9 @@
     @if (error) {
     <div class="panel-content error-state">
         <div class="error-message">
-            <span class="error-icon">⚠️</span>
+            <svg-icon name="warning" [svgStyle]="{ 'width.px': 16, 'height.px': 16, 'fill': '#ff6b35' }"
+                svgAriaLabel="Warning icon">
+            </svg-icon>
             <p>{{ error }}</p>
             <app-button [variant]="ButtonVariant.Secondary" [size]="ButtonSize.Small"
                 (click)="loadConsultationDetail()">
