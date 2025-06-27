@@ -8,16 +8,16 @@ import {
   input,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AngularSvgIconModule, SvgIconRegistryService } from 'angular-svg-icon';
 import { ConsultationDetail } from '../../models/consultations/consultation.model';
 import { ConsultationHistoryService } from '../../services/consultations/consultation-history.service';
 import { ButtonComponent } from '../../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize } from '../../constants/button.enums';
+import { SvgIconComponent } from '../../shared/components/svg-icon.component';
 
 @Component({
   selector: 'app-consultation-detail-panel',
   standalone: true,
-  imports: [CommonModule, ButtonComponent, AngularSvgIconModule],
+  imports: [CommonModule, ButtonComponent, SvgIconComponent],
   templateUrl: './consultation-detail-panel.component.html',
   styleUrls: ['./consultation-detail-panel.component.scss'],
 })
@@ -34,23 +34,7 @@ export class ConsultationDetailPanelComponent implements OnChanges {
   readonly ButtonVariant = ButtonVariant;
   readonly ButtonSize = ButtonSize;
 
-  constructor(
-    private consultationService: ConsultationHistoryService,
-    private iconReg: SvgIconRegistryService
-  ) {
-    this.registerIcons();
-  }
-
-  private registerIcons(): void {
-    this.iconReg.addSvg(
-      'warning',
-      `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-        <path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 16v2h2v-2h-2zm0-6v4h2v-4h-2z"/>
-      </svg>
-    `
-    );
-  }
+  constructor(private consultationService: ConsultationHistoryService) {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['consultationId'] && this.consultationId() && this.isOpen()) {
