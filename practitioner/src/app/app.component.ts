@@ -24,7 +24,7 @@ export class AppComponent implements OnInit {
   activeConsultations: number | undefined = 0;
   isLoggedIn = true;
 
-  private iconNames = ['warning'];
+  private iconNames = ['warning', 'download', 'chevron-right', 'chevron-left'];
 
   constructor(private iconRegistry: SvgIconRegistryService) {}
 

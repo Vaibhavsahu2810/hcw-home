@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
 import { ConsultationHistoryItem } from '../../models/consultations/consultation.model';
 import { ButtonComponent } from '../../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize } from '../../constants/button.enums';
+import { SvgIconComponent } from '../../shared/components/svg-icon.component';
 
 @Component({
   selector: 'app-consultation-history-card',
   standalone: true,
-  imports: [CommonModule, ButtonComponent],
+  imports: [CommonModule, ButtonComponent, SvgIconComponent],
   templateUrl: './consultation-history-card.component.html',
   styleUrls: ['./consultation-history-card.component.scss'],
 })
