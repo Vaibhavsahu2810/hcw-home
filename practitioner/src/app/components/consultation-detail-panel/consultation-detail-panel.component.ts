@@ -30,6 +30,10 @@ export class ConsultationDetailPanelComponent implements OnChanges {
   consultationDetail: ConsultationDetail | null = null;
   loading = false;
   error: string | null = null;
+  
+
+  downloadingPdf = false;
+  downloadError: string | null = null;
 
   readonly ButtonVariant = ButtonVariant;
   readonly ButtonSize = ButtonSize;
@@ -40,6 +44,10 @@ export class ConsultationDetailPanelComponent implements OnChanges {
     if (changes['consultationId'] && this.consultationId() && this.isOpen()) {
       this.loadConsultationDetail();
     }
+    
+    if (changes['isOpen'] && !this.isOpen()) {
+      this.clearDownloadError();
+    }
   }
 
   loadConsultationDetail(): void {
@@ -47,6 +55,7 @@ export class ConsultationDetailPanelComponent implements OnChanges {
 
     this.loading = true;
     this.error = null;
+    this.clearDownloadError();
 
     this.consultationService
       .getConsultationDetail(this.consultationId()!)
@@ -56,7 +65,7 @@ export class ConsultationDetailPanelComponent implements OnChanges {
           this.loading = false;
         },
         error: (error) => {
-          this.error = 'Failed to load consultation details';
+          this.error = error.message || 'Failed to load consultation details';
           this.loading = false;
           console.error('Error loading consultation detail:', error);
         },
@@ -68,13 +77,31 @@ export class ConsultationDetailPanelComponent implements OnChanges {
   }
 
   onDownloadPDF(): void {
-    if (this.consultationId()) {
-      this.downloadPDF.emit(this.consultationId()!);
-    }
+    if (!this.consultationId() || this.downloadingPdf) return;
+
+    this.downloadingPdf = true;
+    this.clearDownloadError();
+
+    this.consultationService
+      .downloadAndSavePDF(this.consultationId()!)
+      .subscribe({
+        next: () => {
+          this.downloadingPdf = false;
+        },
+        error: (error) => {
+          this.downloadingPdf = false;
+          this.downloadError = error.message || 'Failed to download PDF report';
+          console.error('PDF download error:', error);
+        },
+      });
+  }
+
+  clearDownloadError(): void {
+    this.downloadError = null;
   }
 
   formatDate(date: Date | null): string {
-    if (!date) return '';
+    if (!date) return 'N/A';
     return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'long',
@@ -82,22 +109,51 @@ export class ConsultationDetailPanelComponent implements OnChanges {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-    }).format(date);
+    }).format(new Date(date));
   }
 
-  formatMessageTime(date: Date): string {
+  formatMessageTime(date: Date | string): string {
+    const messageDate = new Date(date);
     return new Intl.DateTimeFormat('en-US', {
       hour: '2-digit',
       minute: '2-digit',
-    }).format(date);
+    }).format(messageDate);
   }
 
   getParticipantName(userId: number): string {
-    const participant = this.consultationDetail?.participants.find(
+    if (!this.consultationDetail) return 'Unknown User';
+    
+    const participant = this.consultationDetail.participants?.find(
       (p) => p.userId === userId
     );
-    if (!participant) return 'Unknown User';
+    
+    if (!participant) {
+      // Fallback to patient or consultation owner
+      if (this.consultationDetail.patient.id === userId) {
+        return `${this.consultationDetail.patient.firstName} ${this.consultationDetail.patient.lastName}`;
+      }
+      return `User ${userId}`;
+    }
 
-    return `User ${userId}`;
+    return `User ${userId}`; // This should be enhanced when participant user details are available
+  }
+
+  getParticipantInitials(userId: number): string {
+    if (!this.consultationDetail) return '??';
+    
+    if (this.consultationDetail.patient.id === userId) {
+      const firstName = this.consultationDetail.patient.firstName || '';
+      const lastName = this.consultationDetail.patient.lastName || '';
+      return `${firstName[0] || ''}${lastName[0] || ''}`.toUpperCase() || '??';
+    }
+    return ''; 
+  }
+
+  getPatientInitials(): string {
+    if (!this.consultationDetail?.patient) return '??';
+    
+    const firstName = this.consultationDetail.patient.firstName || '';
+    const lastName = this.consultationDetail.patient.lastName || '';
+    return `${firstName[0] || ''}${lastName[0] || ''}`.toUpperCase() || '??';
   }
 }

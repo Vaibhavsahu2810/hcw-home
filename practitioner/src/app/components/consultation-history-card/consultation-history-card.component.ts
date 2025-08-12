@@ -1,6 +1,7 @@
 import { Component, Input, Output, EventEmitter, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ConsultationHistoryItem } from '../../models/consultations/consultation.model';
+import { ConsultationHistoryService } from '../../services/consultations/consultation-history.service';
 import { ButtonComponent } from '../../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize } from '../../constants/button.enums';
 import { SvgIconComponent } from '../../shared/components/svg-icon.component';
@@ -16,21 +17,18 @@ export class ConsultationHistoryCardComponent {
   consultation = input.required<ConsultationHistoryItem>();
   isSelected = input<boolean>(false);
   @Output() cardClick = new EventEmitter<number>();
-  @Output() downloadPDF = new EventEmitter<number>();
   @Output() sendInvitation = new EventEmitter<number>();
-  @Output() exportData = new EventEmitter<number>();
   @Output() moreActions = new EventEmitter<number>();
+  downloadingPdf = false;
+  downloadError: string | null = null;
 
   readonly ButtonVariant = ButtonVariant;
   readonly ButtonSize = ButtonSize;
 
+  constructor(private consultationService: ConsultationHistoryService) {}
+
   onCardClick(): void {
     this.cardClick.emit(this.consultation().consultation.id);
-  }
-
-  onDownloadClick(event: Event): void {
-    event.stopPropagation();
-    this.downloadPDF.emit(this.consultation().consultation.id);
   }
 
   onSendInvitationClick(event: Event): void {
@@ -40,12 +38,36 @@ export class ConsultationHistoryCardComponent {
 
   onExportClick(event: Event): void {
     event.stopPropagation();
-    this.exportData.emit(this.consultation().consultation.id);
+    this.downloadPDF(this.consultation().consultation.id);
   }
 
   onMoreActionsClick(event: Event): void {
     event.stopPropagation();
     this.cardClick.emit(this.consultation().consultation.id);
+  }
+
+  downloadPDF(consultationId: number): void {
+    if (this.downloadingPdf) return;
+
+    this.downloadingPdf = true;
+    this.clearDownloadError();
+
+    this.consultationService
+      .downloadAndSavePDF(consultationId)
+      .subscribe({
+        next: () => {
+          this.downloadingPdf = false;
+        },
+        error: (error) => {
+          this.downloadingPdf = false;
+          this.downloadError = error.message || 'Failed to download PDF report';
+          console.error('PDF download error:', error);
+        },
+      });
+  }
+
+  clearDownloadError(): void {
+    this.downloadError = null;
   }
 
   getPatientDisplayName(): string {
