@@ -8,6 +8,8 @@ import { ButtonComponent } from '../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize } from '../constants/button.enums';
 import { HttpClientModule } from '@angular/common/http';
 import { OverlayComponent } from '../components/overlay/overlay.component';
+import { UserService } from '../services/user.service';
+import { switchMap } from 'rxjs/operators';
 
 @Component({
   selector: 'app-consultation-history',
@@ -41,9 +43,12 @@ export class ConsultationHistoryComponent implements OnInit {
   readonly ButtonVariant = ButtonVariant;
   readonly ButtonSize = ButtonSize;
 
-  private practitionerId = 3; 
+  private practitionerId: number | null = null;
 
-  constructor(private consultationService: ConsultationHistoryService) {}
+  constructor(
+    private consultationService: ConsultationHistoryService,
+    private userService: UserService
+  ) {}
 
   ngOnInit(): void {
     this.loadConsultations();
@@ -53,8 +58,13 @@ export class ConsultationHistoryComponent implements OnInit {
     this.loading = true;
     this.error = null;
 
-    this.consultationService
-      .getClosedConsultations(this.practitionerId)
+    this.userService.getCurrentUser()
+      .pipe(
+        switchMap(user => {
+          this.practitionerId = user.id;
+          return this.consultationService.getClosedConsultations(user.id);
+        })
+      )
       .subscribe({
         next: (consultations) => {
           this.consultations = consultations;
@@ -95,15 +105,23 @@ export class ConsultationHistoryComponent implements OnInit {
     if (this.downloadingPdfIds.has(id)) {
       return;
     }
+
+    if (!this.practitionerId) {
+      this.showErrorMessage('User information not available');
+      return;
+    }
+
     this.downloadErrors.delete(id);
     this.downloadingPdfIds.add(id);
+    
     const consultation = this.consultations.find(c => c.consultation.id === id);
     const patientName = consultation?.patient 
       ? `${consultation.patient.firstName}-${consultation.patient.lastName}`.replace(/\s+/g, '-')
       : 'unknown-patient';
     const customFilename = `consultation-${id}-${patientName}-${new Date().toISOString().split('T')[0]}.pdf`;
+    
     this.consultationService
-      .downloadAndSavePDF(id, customFilename)
+      .downloadAndSavePDF(id, this.practitionerId, customFilename)
       .subscribe({
         next: () => {
           this.downloadingPdfIds.delete(id);

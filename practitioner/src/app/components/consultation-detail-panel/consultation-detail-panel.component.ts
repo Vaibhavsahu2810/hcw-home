@@ -13,6 +13,7 @@ import { ConsultationHistoryService } from '../../services/consultations/consult
 import { ButtonComponent } from '../../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize } from '../../constants/button.enums';
 import { SvgIconComponent } from '../../shared/components/svg-icon.component';
+import { UserService } from '../../services/user.service';
 
 @Component({
   selector: 'app-consultation-detail-panel',
@@ -38,7 +39,10 @@ export class ConsultationDetailPanelComponent implements OnChanges {
   readonly ButtonVariant = ButtonVariant;
   readonly ButtonSize = ButtonSize;
 
-  constructor(private consultationService: ConsultationHistoryService) {}
+  constructor(
+    private consultationService: ConsultationHistoryService,
+    private userService: UserService
+  ) {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['consultationId'] && this.consultationId() && this.isOpen()) {
@@ -82,18 +86,29 @@ export class ConsultationDetailPanelComponent implements OnChanges {
     this.downloadingPdf = true;
     this.clearDownloadError();
 
-    this.consultationService
-      .downloadAndSavePDF(this.consultationId()!)
-      .subscribe({
-        next: () => {
-          this.downloadingPdf = false;
-        },
-        error: (error) => {
-          this.downloadingPdf = false;
-          this.downloadError = error.message || 'Failed to download PDF report';
-          console.error('PDF download error:', error);
-        },
-      });
+    this.userService.getCurrentUser().subscribe({
+      next: (user) => {
+        const requesterId = user.id;
+        
+        this.consultationService
+          .downloadAndSavePDF(this.consultationId()!, requesterId)
+          .subscribe({
+            next: () => {
+              this.downloadingPdf = false;
+            },
+            error: (error) => {
+              this.downloadingPdf = false;
+              this.downloadError = error.message || 'Failed to download PDF report';
+              console.error('PDF download error:', error);
+            },
+          });
+      },
+      error: (error) => {
+        this.downloadingPdf = false;
+        this.downloadError = 'Failed to get user information';
+        console.error('Error getting current user:', error);
+      }
+    });
   }
 
   clearDownloadError(): void {
@@ -128,14 +143,13 @@ export class ConsultationDetailPanelComponent implements OnChanges {
     );
     
     if (!participant) {
-      // Fallback to patient or consultation owner
       if (this.consultationDetail.patient.id === userId) {
         return `${this.consultationDetail.patient.firstName} ${this.consultationDetail.patient.lastName}`;
       }
       return `User ${userId}`;
     }
 
-    return `User ${userId}`; // This should be enhanced when participant user details are available
+    return `User ${userId}`; 
   }
 
   getParticipantInitials(userId: number): string {

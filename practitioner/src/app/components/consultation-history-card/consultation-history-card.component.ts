@@ -5,6 +5,7 @@ import { ConsultationHistoryService } from '../../services/consultations/consult
 import { ButtonComponent } from '../../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize } from '../../constants/button.enums';
 import { SvgIconComponent } from '../../shared/components/svg-icon.component';
+import { UserService } from '../../services/user.service';
 
 @Component({
   selector: 'app-consultation-history-card',
@@ -25,7 +26,10 @@ export class ConsultationHistoryCardComponent {
   readonly ButtonVariant = ButtonVariant;
   readonly ButtonSize = ButtonSize;
 
-  constructor(private consultationService: ConsultationHistoryService) {}
+  constructor(
+    private consultationService: ConsultationHistoryService,
+    private userService: UserService
+  ) {}
 
   onCardClick(): void {
     this.cardClick.emit(this.consultation().consultation.id);
@@ -52,18 +56,29 @@ export class ConsultationHistoryCardComponent {
     this.downloadingPdf = true;
     this.clearDownloadError();
 
-    this.consultationService
-      .downloadAndSavePDF(consultationId)
-      .subscribe({
-        next: () => {
-          this.downloadingPdf = false;
-        },
-        error: (error) => {
-          this.downloadingPdf = false;
-          this.downloadError = error.message || 'Failed to download PDF report';
-          console.error('PDF download error:', error);
-        },
-      });
+    this.userService.getCurrentUser().subscribe({
+      next: (user) => {
+        const requesterId = user.id;
+        
+        this.consultationService
+          .downloadAndSavePDF(consultationId, requesterId)
+          .subscribe({
+            next: () => {
+              this.downloadingPdf = false;
+            },
+            error: (error) => {
+              this.downloadingPdf = false;
+              this.downloadError = error.message || 'Failed to download PDF report';
+              console.error('PDF download error:', error);
+            },
+          });
+      },
+      error: (error) => {
+        this.downloadingPdf = false;
+        this.downloadError = 'Failed to get user information';
+        console.error('Error getting current user:', error);
+      }
+    });
   }
 
   clearDownloadError(): void {

@@ -3,7 +3,6 @@ import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular
 import { Observable } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { tap } from 'rxjs/operators';
-// Domain Models
 import {
   ConsultationHistoryItem,
   ConsultationDetail,
@@ -13,7 +12,6 @@ import {
   Message,
 } from '../../models/consultations/consultation.model';
 
-// DTOs
 import {
   ConsultationHistoryResponseDto,
   ConsultationDetailResponseDto,
@@ -22,7 +20,6 @@ import {
 } from '../../dtos/consultations';
 import { UserResponseDto } from '../../dtos/users';
 
-// Constants
 import { ConsultationStatus } from '../../constants/consultation-status.enum';
 
 @Injectable({
@@ -58,13 +55,17 @@ export class ConsultationHistoryService {
       .pipe(map(this.mapToDetailItem));
   }
 
-  downloadConsultationPDF(consultationId: number): Observable<Blob> {
+
+  downloadConsultationPDF(consultationId: number, requesterId: number): Observable<Blob> {
     const headers = new HttpHeaders({
       'Accept': 'application/pdf'
     });
 
+    const params = new HttpParams().set('requesterId', requesterId.toString());
+
     return this.http.get(`${this.apiUrl}/${consultationId}/pdf`, {
       headers,
+      params,
       responseType: 'blob',
       observe: 'response'
     }).pipe(
@@ -84,11 +85,23 @@ export class ConsultationHistoryService {
     );
   }
 
-  downloadAndSavePDF(consultationId: number, customFilename?: string): Observable<void> {
-    return this.downloadConsultationPDF(consultationId).pipe(
+  downloadAndSavePDF(
+    consultationId: number, 
+    requesterId: number, 
+    customFilename?: string
+  ): Observable<void> {
+    return this.downloadConsultationPDF(consultationId, requesterId).pipe(
       map(blob => {
-        this.saveBlob(blob, customFilename || `consultation-${consultationId}-report.pdf`);
-      })
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = customFilename || `consultation_${consultationId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }),
+      catchError(this.handleError)
     );
   }
 
@@ -170,7 +183,6 @@ private mapToHistoryItem = (data: any): ConsultationHistoryItem => {
     closedAt: end || null,
     createdBy: consultationData.createdBy,
     groupId: consultationData.groupId,
-    // Fix: Use 'owner' from API response, fallback to 'ownerId'
     ownerId: consultationData.owner || consultationData.ownerId,
     whatsappTemplateId: consultationData.whatsappTemplateId,
     status: consultationData.status,
