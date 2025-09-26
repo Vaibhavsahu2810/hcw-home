@@ -1,0 +1,71 @@
+<div mat-dialog-content class="termination-modal">
+    <header class="termination-modal__header">
+      <h2 mat-dialog-title class="termination-modal__title">TERMINATE THE CONSULTATION</h2>
+      <button mat-icon-button (click)="onClose()" class="termination-modal__close">
+        <mat-icon>close</mat-icon>
+      </button>
+    </header>
+
+    <div class="termination-modal__body">
+      <div class="termination-options">
+        
+        <div class="termination-option">
+          <div class="termination-option__content">
+            <h3 class="termination-option__title">Close</h3>
+            <p class="termination-option__description">
+              The consultation will be displayed into history during 24 hours and you will not 
+              be able to communication anymore
+            </p>
+          </div>
+          <div class="termination-option__actions">
+            <app-button 
+              [variant]="ButtonVariant.Primary"
+              [size]="ButtonSize.Medium"
+              (click)="onActionSelect(TerminationAction.Close)"
+              class="termination-option__button termination-option__button--close">
+              Close
+            </app-button>
+          </div>
+        </div>
+
+        <div class="termination-option">
+          <div class="termination-option__content">
+            <h3 class="termination-option__title">Terminate but keep opened</h3>
+            <p class="termination-option__description">
+              You will be able to resume the consultation later but the nurse or the 
+              patient will not able to communicate with you anymore.
+            </p>
+          </div>
+          <div class="termination-option__actions">
+            <app-button 
+              [variant]="ButtonVariant.Primary"
+              [size]="ButtonSize.Medium"
+              (click)="onActionSelect(TerminationAction.TerminateButKeepOpen)"
+              class="termination-option__button termination-option__button--terminate">
+              Terminate but keep opened
+            </app-button>
+          </div>
+        </div>
+
+        <div class="termination-option">
+          <div class="termination-option__content">
+            <h3 class="termination-option__title">Stay in the current consultation</h3>
+            <p class="termination-option__description">
+              Don't close the consultation
+            </p>
+          </div>
+          <div class="termination-option__actions">
+            <app-button 
+              [variant]="ButtonVariant.Outline"
+              [size]="ButtonSize.Medium"
+              (click)="onActionSelect(TerminationAction.StayInConsultation)"
+              class="termination-option__button termination-option__button--stay">
+              Stay in the current consultation
+            </app-button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+</div>

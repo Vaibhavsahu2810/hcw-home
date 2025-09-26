@@ -107,13 +107,11 @@ export class AuthService {
     loginUserDto: LoginUserDto,
   ): Promise<{ userId: number; userEmail: string; userRole: string }> {
     const user = await this.findByEmail(loginUserDto.email);
-    const userRole = user.role;
     if (!user || user.temporaryAccount) {
       this.logger.warn(`No valid user found for email ${loginUserDto.email}`);
       throw HttpExceptionHelper.notFound('user not found/user not valid');
     }
-
-    // Enhanced user status validation with detailed error messages
+    const userRole = user.role;
     if (user.status !== UserStatus.APPROVED) {
       this.logger.warn(`LocalStrategy: User ${user.id} is not approved - Status: ${user.status}`);
 

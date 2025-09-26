@@ -59,6 +59,8 @@ export class LoginComponent implements OnInit {
   private authService = inject(AuthService);
   private snackBarService=inject(SnackbarService)
   errorMessage=''
+  showPassword = false;
+
 
 
   loginForm = new FormGroup({
