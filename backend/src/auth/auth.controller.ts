@@ -38,6 +38,7 @@ import { MagicLinkGuard } from './guards/magic-link.guard';
 import { updateUserSchema } from 'src/user/validation/user.validation';
 import { UpdateUserDto } from 'src/user/dto/update-user.dto';
 import { MagicLinkLoginDto } from './dto/magic-link-login.dto';
+import { EmailService } from 'src/common/email/email.service';
 
 
 @Controller('auth')
@@ -45,6 +46,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly logger: CustomLoggerService,
+    private readonly emailService: EmailService,
+
   ) {
     logger.setContext('Authcontroller');
   }
@@ -364,13 +367,17 @@ export class AuthController {
     const pateintUrl = process.env.PATIENT_URL;
 
     const magicLink = `${pateintUrl}/login?token=${token}`;
-    // await this.messageService.send({
-    //   to: contact,
-    //   payload: {
-    //     link: magicLink,
-    //     userId: user.id,
-    //   },
-    // });
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+
+  if (isEmail) {
+    await this.emailService.sendSelfInvitationEmail(contact, magicLink);
+    this.logger.log(`Magic link email sent to ${contact}`, { magicLink });
+  } else {
+    this.logger.log(`Magic link created but not sent (not an email)`, {
+      contact,
+      magicLink,
+    });
+  }
 
     this.logger.log(`magic link created and sent`, { magicLink });
 
