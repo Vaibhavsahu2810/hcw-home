@@ -368,6 +368,8 @@ export class AuthController {
 
     const magicLink = `${pateintUrl}/login?token=${token}`;
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+  console.log("magic link",magicLink);
+  
 
   if (isEmail) {
     await this.emailService.sendSelfInvitationEmail(contact, magicLink);
