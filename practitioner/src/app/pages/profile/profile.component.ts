@@ -15,7 +15,7 @@ import { UserService } from '../../services/user.service';
 import { LanguageService } from '../../services/language.service';
 import { SpecialityService } from '../../services/speciality.service';
 import { ToastService } from '../../services/toast/toast.service';
-import { User, UserSex, Language, Speciality, UpdateUserProfileDto, LoginUser } from '../../models/user.model';
+import { User, UserSex, Language, Speciality, UpdateUserProfileDto } from '../../models/user.model';
 import { ButtonComponent } from '../../components/ui/button/button.component';
 import { ButtonVariant, ButtonSize, ButtonType } from '../../constants/button.enums';
 import { ConfigService } from '../../services/config.service';
@@ -101,6 +101,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
 
 
+
   ngOnInit(): void {
     this.loadProfileData();
   }
@@ -134,15 +135,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   loadProfileData(): void {
     this.isLoading.set(true);
+    const user = this.authservice.getCurrentUser();
+    this.currentUser.set(user);
 
     forkJoin({
-      user: this.userService.getCurrentUser().pipe(
-        catchError(error => {
-          console.error('Error loading user profile:', error);
-          this.toastService.showError('Failed to load user profile');
-          return of(null);
-        })
-      ),
       languages: this.languageService.getAllLanguages().pipe(
         catchError(error => {
           console.error('Error loading languages:', error);
@@ -168,8 +164,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       takeUntil(this.destroy$),
       finalize(() => this.isLoading.set(false))
     ).subscribe({
-      next: ({ user, languages, specialities, countries }) => {
-        this.currentUser.set(user);
+      next: ({ languages, specialities, countries }) => {
         this.languages.set(languages);
         this.specialities.set(specialities);
         this.countries.set(countries)
@@ -275,7 +270,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
         const existingUser = this.authservice.getCurrentUser();
         if (existingUser) {
-          const loginUser: LoginUser = {
+          const loginUser: User = {
             ...updatedUser,
             accessToken: existingUser.accessToken,
             refreshToken: existingUser.refreshToken,
