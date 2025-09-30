@@ -62,6 +62,20 @@ export const changePasswordSchema = z.object({
       'New password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
     ),
 });
+export const updatePasswordSchema = z.object({
+  username: z
+    .string()
+    .min(1, 'Username is required'),
+
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(100, 'Password cannot exceed 100 characters')
+    .regex(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).+$/,
+      'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'
+    ),
+});
 
 export const queryUserSchema = z.object({
   page: z.preprocess((val) => Number(val), z.number().min(1)).default(1),

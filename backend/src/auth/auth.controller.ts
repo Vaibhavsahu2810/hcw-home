@@ -35,7 +35,7 @@ import { AuthenticatedGuard } from './guards/authenticated.guard';
 import { CustomLoggerService } from 'src/logger/logger.service';
 import { TokenType } from '@prisma/client';
 import { MagicLinkGuard } from './guards/magic-link.guard';
-import { updateUserSchema } from 'src/user/validation/user.validation';
+import { updatePasswordSchema, updateUserSchema } from 'src/user/validation/user.validation';
 import { UpdateUserDto } from 'src/user/dto/update-user.dto';
 import { MagicLinkLoginDto } from './dto/magic-link-login.dto';
 import { EmailService } from 'src/common/email/email.service';
@@ -336,23 +336,23 @@ export class AuthController {
     return ApiResponseDto.success(result, 'Tokens created successfully', 200);
   }
 
-  @Post('update-password')
-  async resetPassword(
-    @Body() body: { username: string; password: string },
-    @Req() req: ExtendedRequest,
-  ) {
-    const { username, password } = body;
-    if (!username || !password) {
-      throw new HttpException(
-        'Email and password are required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    await this.authService.updatePassword(username, password);
-
-    return ApiResponseDto.success({}, 'Password updated successfully', 200);
+@Post('update-password')
+async resetPassword(
+  @Body(new ZodValidationPipe(updatePasswordSchema)) 
+  body: { username: string; password: string },
+  @Req() req: ExtendedRequest,
+) {
+  const { username, password } = body;
+  if (!username || !password) {
+    throw new HttpException(
+      'Email and password are required',
+      HttpStatus.BAD_REQUEST,
+    );
   }
+  await this.authService.updatePassword(username, password);
+  return ApiResponseDto.success({}, 'Password updated successfully', 200);
+}
+
   @Post('request-magic-link')
   async requestMagicLink(
     @Body('contact') contact: string,
