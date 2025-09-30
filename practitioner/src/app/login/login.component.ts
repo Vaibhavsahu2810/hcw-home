@@ -65,7 +65,7 @@ export class LoginComponent implements OnInit {
   private termService= inject(TermService)
   errorMessage:string = '';
   showSetPasswordForm:boolean=false;
-
+  showPassword = false;
 
   loginForm = new FormGroup({
     email: new FormControl('', [Validators.required, Validators.email]),
