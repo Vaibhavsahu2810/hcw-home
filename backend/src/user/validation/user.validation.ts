@@ -32,7 +32,7 @@ export const createUserSchema = z.object({
   temporaryAccount: z.boolean().optional().default(false),
   phoneNumber: z
     .string()
-    .regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format')
+    .regex(/^\+[1-9]\d{7,14}$/, 'Phone number must start with a country code (e.g., +91...)')
     .optional(),
   country: z
     .string()

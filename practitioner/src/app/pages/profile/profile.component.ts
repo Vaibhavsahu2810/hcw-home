@@ -25,7 +25,7 @@ import { MatSlideToggle } from '@angular/material/slide-toggle';
 import { NotificationService } from '../../services/notification.service';
 import { NotificationSettings } from '../../services/notification.service';
 
-const PHONE_NUMBER_REGEX = /^[+]?[1-9][\d\s\-\(\)]{7,15}$/;
+const PHONE_NUMBER_REGEX = /^\+[1-9][\d\s\-\(\)]{7,14}$/;
 const MIN_NAME_LENGTH = 2;
 const MAX_NAME_LENGTH = 50;
 
@@ -237,7 +237,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
 
   onSave(): void {
-    if (!this.profileForm.valid || !this.currentUser()) {
+    if (!this.currentUser()) {
       this.markFormGroupTouched();
       return;
     }
@@ -284,13 +284,20 @@ export class ProfileComponent implements OnInit, OnDestroy {
         }
 
         this.currentUser.set(updatedUser);
+        this.populateForm(updatedUser);
         this.profileForm.markAsPristine();
       },
       error: (error) => {
-        console.error('Error updating profile', error);
-        this.snackBarService.showError('Failed to update profile. Please try again.');
+        if (error.error.error?.validationErrors) {
+          const firstKey = Object.keys(error.error.error.validationErrors)[0];
+          const firstError = error.error.error.validationErrors[firstKey][0];
+          this.snackBarService.showError(firstError);
+        } else {
+          this.snackBarService.showError(error.error?.message || 'Something went wrong');
+        }
       }
     });
+
   }
 
   onReset(): void {

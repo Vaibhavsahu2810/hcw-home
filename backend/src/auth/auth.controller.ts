@@ -128,11 +128,10 @@ export class AuthController {
 
   @UseGuards(AuthGuard)
   @Post('update')
-  @ApiOperation({ summary: 'Update user by ID' })
-  @ApiParam({ name: 'id', description: 'User ID', type: 'number' })
+  @ApiOperation({ summary: 'Update user profile' })
   @ApiResponse({
     status: 200,
-    description: 'User updated successfully',
+    description: 'User profile updated successfully',
   })
   @ApiResponse({ status: 400, description: 'Bad request - validation failed' })
   @ApiResponse({ status: 404, description: 'User not found' })
@@ -146,7 +145,6 @@ export class AuthController {
       this.logger.error('User ID not found in request');
       throw HttpExceptionHelper.unauthorized('User ID not found');
     }
-
     const user = await this.authService.update(userId, updateUserDto);
     return ApiResponseDto.success(user, 'User updated successfully', 200);
   }
