@@ -76,7 +76,6 @@ export class SetPasswordComponent {
           });
         },
         error: (err) => {
-          this.loading.set(false);
           if (err.error.error?.validationErrors) {
           const firstKey = Object.keys(err.error.error.validationErrors)[0];
           const firstError = err.error.error.validationErrors[firstKey][0];
@@ -84,6 +83,8 @@ export class SetPasswordComponent {
         } else {
           this.error=(err.error?.message || 'Something went wrong');
         }
+        this.loading.set(false);
+
         },
       });
     }
