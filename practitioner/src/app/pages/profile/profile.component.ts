@@ -9,9 +9,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatIconModule } from '@angular/material/icon';
 import { forkJoin, Subject, of } from 'rxjs';
-import { takeUntil, catchError, finalize, single } from 'rxjs/operators';
-
-import { UserService } from '../../services/user.service';
+import { takeUntil, catchError, finalize } from 'rxjs/operators';
 import { LanguageService } from '../../services/language.service';
 import { SpecialityService } from '../../services/speciality.service';
 import { ToastService } from '../../services/toast/toast.service';
@@ -68,7 +66,6 @@ interface GenderOption {
 })
 export class ProfileComponent implements OnInit, OnDestroy {
   private readonly notificationService = inject(NotificationService);
-  private readonly userService = inject(UserService);
   private readonly languageService = inject(LanguageService);
   private readonly specialityService = inject(SpecialityService);
   private readonly configService = inject(ConfigService)
@@ -77,7 +74,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly fb = inject(FormBuilder);
   private readonly toastService = inject(ToastService);
   private readonly destroy$ = new Subject<void>();
-
   readonly profileForm: FormGroup;
   readonly currentUser = signal<User | null>(null);
   readonly languages = signal<Language[]>([]);
