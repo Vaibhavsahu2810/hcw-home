@@ -35,9 +35,10 @@ import { AuthenticatedGuard } from './guards/authenticated.guard';
 import { CustomLoggerService } from 'src/logger/logger.service';
 import { TokenType } from '@prisma/client';
 import { MagicLinkGuard } from './guards/magic-link.guard';
-import { updateUserSchema } from 'src/user/validation/user.validation';
+import { updatePasswordSchema, updateUserSchema } from 'src/user/validation/user.validation';
 import { UpdateUserDto } from 'src/user/dto/update-user.dto';
 import { MagicLinkLoginDto } from './dto/magic-link-login.dto';
+import { EmailService } from 'src/common/email/email.service';
 
 
 @Controller('auth')
@@ -45,6 +46,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly logger: CustomLoggerService,
+    private readonly emailService: EmailService,
+
   ) {
     logger.setContext('Authcontroller');
   }
@@ -125,11 +128,10 @@ export class AuthController {
 
   @UseGuards(AuthGuard)
   @Post('update')
-  @ApiOperation({ summary: 'Update user by ID' })
-  @ApiParam({ name: 'id', description: 'User ID', type: 'number' })
+  @ApiOperation({ summary: 'Update user profile' })
   @ApiResponse({
     status: 200,
-    description: 'User updated successfully',
+    description: 'User profile updated successfully',
   })
   @ApiResponse({ status: 400, description: 'Bad request - validation failed' })
   @ApiResponse({ status: 404, description: 'User not found' })
@@ -143,7 +145,6 @@ export class AuthController {
       this.logger.error('User ID not found in request');
       throw HttpExceptionHelper.unauthorized('User ID not found');
     }
-
     const user = await this.authService.update(userId, updateUserDto);
     return ApiResponseDto.success(user, 'User updated successfully', 200);
   }
@@ -335,23 +336,23 @@ export class AuthController {
     return ApiResponseDto.success(result, 'Tokens created successfully', 200);
   }
 
-  @Post('update-password')
-  async resetPassword(
-    @Body() body: { username: string; password: string },
-    @Req() req: ExtendedRequest,
-  ) {
-    const { username, password } = body;
-    if (!username || !password) {
-      throw new HttpException(
-        'Email and password are required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    await this.authService.updatePassword(username, password);
-
-    return ApiResponseDto.success({}, 'Password updated successfully', 200);
+@Post('update-password')
+async resetPassword(
+  @Body(new ZodValidationPipe(updatePasswordSchema)) 
+  body: { username: string; password: string },
+  @Req() req: ExtendedRequest,
+) {
+  const { username, password } = body;
+  if (!username || !password) {
+    throw new HttpException(
+      'Email and password are required',
+      HttpStatus.BAD_REQUEST,
+    );
   }
+  await this.authService.updatePassword(username, password);
+  return ApiResponseDto.success({}, 'Password updated successfully', 200);
+}
+
   @Post('request-magic-link')
   async requestMagicLink(
     @Body('contact') contact: string,
@@ -364,13 +365,19 @@ export class AuthController {
     const pateintUrl = process.env.PATIENT_URL;
 
     const magicLink = `${pateintUrl}/login?token=${token}`;
-    // await this.messageService.send({
-    //   to: contact,
-    //   payload: {
-    //     link: magicLink,
-    //     userId: user.id,
-    //   },
-    // });
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+  console.log("magic link",magicLink);
+  
+
+  if (isEmail) {
+    await this.emailService.sendSelfInvitationEmail(contact, magicLink);
+    this.logger.log(`Magic link email sent to ${contact}`, { magicLink });
+  } else {
+    this.logger.log(`Magic link created but not sent (not an email)`, {
+      contact,
+      magicLink,
+    });
+  }
 
     this.logger.log(`magic link created and sent`, { magicLink });
 

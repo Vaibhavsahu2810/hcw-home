@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import sgMail from '@sendgrid/mail';
 import { ConfigService } from 'src/config/config.service';
 import { UserRole } from '@prisma/client';
+import { HttpExceptionHelper } from '../helpers/execption/http-exception.helper';
 
 @Injectable()
 export class EmailService {
@@ -346,6 +347,77 @@ export class EmailService {
       throw new Error(`Email delivery failed: ${error.message}`);
     }
   }
+  async sendSelfInvitationEmail(toEmail: string, invitationLink: string) {
+  try {
+    if (!toEmail?.trim() || !invitationLink?.trim()) {
+      throw new Error('Email address and invitation link are required');
+    }
+
+    const subject = `✨ You're Invited to Join Our Healthcare Platform`;
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Healthcare Invitation</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: white; padding: 30px; border: 1px solid #ddd; border-top: none; }
+          .cta-button { display: inline-block; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; margin: 20px 0; font-weight: bold; }
+          .cta-button:hover { opacity: 0.9; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; border-top: 1px solid #eee; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>✨ Welcome!</h1>
+          <p>Your personal invitation to access our healthcare services</p>
+        </div>
+        <div class="content">
+          <p>Hello,</p>
+          
+          <p>We’re excited to invite you to our healthcare platform. Use the link below to create your account and start using our services.</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${invitationLink}" class="cta-button">🔗 Accept Invitation</a>
+          </div>
+          
+          <p><strong>Next Steps:</strong></p>
+          <ul>
+            <li>Click the button above to accept your invitation</li>
+            <li>Set up your account details</li>
+            <li>Book consultations and manage appointments</li>
+          </ul>
+          
+          <p>If you need assistance, please reach out to our support team.</p>
+          
+          <p>Warm regards,<br>
+          Your Healthcare Team</p>
+        </div>
+        <div class="footer">
+          <p>This is an automated message. Please do not reply to this email.</p>
+          <p>If the button above doesn't work, copy and paste this link into your browser:<br>
+          <a href="${invitationLink}">${invitationLink}</a></p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await this.sendEmail(toEmail, subject, html);
+    this.logger.log(`Self-invitation email sent to ${toEmail}`);
+  } catch (error) {
+    throw HttpExceptionHelper.internalServerError('Failed to send self-invitation email');
+    this.logger.error(
+      `Failed to send self-invitation email to ${toEmail}:`,
+      error.stack,
+    );
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+}
+
 
   private getRoleDisplayName(role: UserRole): string {
     switch (role) {

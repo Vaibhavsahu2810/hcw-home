@@ -76,9 +76,15 @@ export class SetPasswordComponent {
           });
         },
         error: (err) => {
-          this.error = err?.error.message;
-          this.loading.set(false);
-          this.snackbarService.showError('Failed to reset password');
+          if (err.error.error?.validationErrors) {
+          const firstKey = Object.keys(err.error.error.validationErrors)[0];
+          const firstError = err.error.error.validationErrors[firstKey][0];
+          this.error = firstError;
+        } else {
+          this.error=(err.error?.message || 'Something went wrong');
+        }
+        this.loading.set(false);
+
         },
       });
     }
