@@ -10,9 +10,9 @@ import { CommonModule } from '@angular/common';
 import { SidebarItem } from '../../../models/sidebar';
 import { BadgeComponent } from '../../../badge/badge.component';
 import { AuthService } from '../../../auth/auth.service';
-import { LoginUser } from '../../../models/user.model';
 import { MatMenuModule } from '@angular/material/menu';
 import { AngularSvgIconModule } from 'angular-svg-icon';
+import { User } from '../../../models/user.model';
 
 @Component({
   selector: 'app-sidebar',
@@ -38,7 +38,7 @@ export class SidebarComponent {
   pendingConsultations = input<number | undefined>(0);
   activeConsultations = input<number | undefined>(0);
   private authService = inject(AuthService)
-  currentUser: LoginUser | null = null;
+  currentUser: User | null = null;
   showDropdown=false
 
 

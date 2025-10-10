@@ -12,9 +12,10 @@ import { ConfigModule } from 'src/config/config.module';
 import { InviteController } from './invite/invite.controller';
 import { InviteModule } from './invite/invite.module';
 import { MagicLinkStrategy } from './strategies/magic-link.strategy';
+import { EmailModule } from 'src/common/email/email.module';
 
 @Module({
-  imports: [ConfigModule, JwtModule, PassportModule.register({session:true}), InviteModule],
+  imports: [ConfigModule, JwtModule, PassportModule.register({session:true}), InviteModule,EmailModule],
   controllers: [AuthController, InviteController],
   providers: [
     AuthService,

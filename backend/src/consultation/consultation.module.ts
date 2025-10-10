@@ -46,3 +46,4 @@ import { ConsultationInvitationModule } from './consultation-invitation.module';
 export class ConsultationModule implements OnModuleInit {
   onModuleInit() {}
 }
+
