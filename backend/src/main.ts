@@ -533,7 +533,7 @@ class ApplicationBootstrap {
 
   private logApplicationInfo(port: number, configService: ConfigService): void {
     const baseUrl = `http://localhost:${port}`;
-    const apiUrl = `${baseUrl}/api/v1`;
+    const apiUrl = `${baseUrl}/api`;
 
     this.logger.logServerAction(`Application started successfully`, {
       url: apiUrl,
