@@ -45,10 +45,10 @@
                 <div class="row">
                     <div class="field full">
                         <label>Group (Optional)</label>
-                        <select formControlName="group">
-                            <option value="">No group selected</option>
-                            @for (group of groups; track group) {
-                            <option [value]="group">{{ group }}</option>
+                        <select formControlName="group" [disabled]="loading">
+                            <option value="">{{ loading ? 'Loading groups...' : 'No group selected' }}</option>
+                            @for (group of groups; track group.id) {
+                            <option [value]="group.name">{{ group.name }}</option>
                             }
                         </select>
                     </div>
@@ -76,6 +76,40 @@
                         Plan later
                     </label>
                 </div>
+
+                @if (isPlanLaterSelected) {
+                    <div class="scheduling-section">
+                        <h4>Planned on</h4>
+                        
+                        <div class="row">
+                            <div class="field">
+                                <label>Choose a date</label>
+                                <input type="date" formControlName="plannedDate" />
+                            </div>
+                            <div class="field">
+                                <label>Select Timezone</label>
+                                <select formControlName="timezone">
+                                    <option value="" disabled>Select timezone</option>
+                                    @for (tz of timezones; track tz.code) {
+                                    <option [value]="tz.code">{{ tz.name }}</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="field">
+                                <label>Choose a time</label>
+                                <select formControlName="plannedTime">
+                                    <option value="" disabled>Select time</option>
+                                    @for (time of timeSlots; track time) {
+                                    <option [value]="time">{{ time }}</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                }
             </div>
 
             <div class="form-section right">
