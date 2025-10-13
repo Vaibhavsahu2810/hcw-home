@@ -120,7 +120,7 @@ export class ConfigService {
 
   // --- Swagger Server URL ---
   get swaggerServerUrl() {
-    return this.configService.get<string>('SWAGGER_SERVER_URL', `http://localhost:${this.port}/api/v1`);
+    return this.configService.get<string>('SWAGGER_SERVER_URL', `http://localhost:${this.port}/api`);
   }
   private readonly logger = new Logger(ConfigService.name);
 
