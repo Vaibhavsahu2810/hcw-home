@@ -557,12 +557,20 @@ export class ConsultationService {
       isNewPatient = true;
     }
 
+    let scheduledDate = createDto.scheduledDate;
+    
+    if (createDto.planLater && createDto.plannedDate && createDto.plannedTime && createDto.timezone) {
+      const dateTimeString = `${createDto.plannedDate}T${createDto.plannedTime}:00`;
+      scheduledDate = new Date(dateTimeString);
+
+    }
+
     const consultationData = {
       ownerId: practitionerId,
       groupId: createDto.group ? parseInt(createDto.group) : null,
       specialityId: createDto.specialityId || null,
       symptoms: createDto.symptoms || null,
-      scheduledDate: createDto.scheduledDate || null,
+      scheduledDate: scheduledDate || null,
       status: ConsultationStatus.SCHEDULED,
       createdAt: new Date(),
       startedAt: new Date(),

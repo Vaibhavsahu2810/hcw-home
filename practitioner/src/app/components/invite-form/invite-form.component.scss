@@ -215,6 +215,28 @@
     letter-spacing: 0.5px;
 }
 
+/* Scheduling section */
+.scheduling-section {
+    margin-top: 24px;
+    padding: 20px;
+    background: $color-section-bg;
+    border: 1px solid $color-section-border;
+    border-radius: 8px;
+
+    h4 {
+        font-size: 16px;
+        font-weight: 600;
+        color: $color-heading;
+        margin: 0 0 16px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .row {
+        margin-bottom: 16px;
+    }
+}
+
 /* Footer */
 .invite-modal__footer {
     padding: 24px 32px;

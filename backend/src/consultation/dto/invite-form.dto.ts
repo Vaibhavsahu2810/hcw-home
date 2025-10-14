@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsDate,
   IsNumber,
+  IsBoolean,
   Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -66,6 +67,26 @@ export class CreatePatientConsultationDto {
   @IsOptional()
   @IsString()
   symptoms?: string;
+
+  @ApiPropertyOptional({ description: 'Whether consultation is planned for later' })
+  @IsOptional()
+  @IsBoolean()
+  planLater?: boolean;
+
+  @ApiPropertyOptional({ description: 'Planned date (YYYY-MM-DD format)' })
+  @IsOptional()
+  @IsString()
+  plannedDate?: string;
+
+  @ApiPropertyOptional({ description: 'Timezone for planned consultation' })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  @ApiPropertyOptional({ description: 'Planned time (HH:MM format)' })
+  @IsOptional()
+  @IsString()
+  plannedTime?: string;
 }
 
 export class PatientResponseDto {
