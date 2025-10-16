@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Req, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards, Req, Param, Logger } from '@nestjs/common';
 import { InviteService } from './invite.service';
 import { AuthGuard } from '../guards/auth.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -8,6 +8,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 @UseGuards(AuthGuard)
 @ApiBearerAuth()
 export class InviteController {
+  private readonly logger = new Logger(InviteController.name);
+
   constructor(private readonly inviteService: InviteService) { }
 
   @Get()
@@ -19,7 +21,7 @@ export class InviteController {
     @Req() req: any
   ) {
     const practitionerId = req.user.id;
-    console.log(`[InviteController] GET /invites called by user:`, {
+    this.logger.log('GET /invites called by user', {
       id: req.user.id,
       email: req.user.email,
       role: req.user.role,
@@ -27,7 +29,7 @@ export class InviteController {
       limit
     });
     const result = await this.inviteService.getInvitesByPractitioner(practitionerId, page, limit);
-    console.log(`[InviteController] Returning result:`, { success: result.success, totalInvites: result.data?.total });
+    this.logger.log('Returning result', { success: result.success, totalInvites: result.data?.total });
     return result;
   }
 

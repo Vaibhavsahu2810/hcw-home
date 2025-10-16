@@ -336,22 +336,22 @@ export class AuthController {
     return ApiResponseDto.success(result, 'Tokens created successfully', 200);
   }
 
-@Post('update-password')
-async resetPassword(
-  @Body(new ZodValidationPipe(updatePasswordSchema)) 
-  body: { username: string; password: string },
-  @Req() req: ExtendedRequest,
-) {
-  const { username, password } = body;
-  if (!username || !password) {
-    throw new HttpException(
-      'Email and password are required',
-      HttpStatus.BAD_REQUEST,
-    );
+  @Post('update-password')
+  async resetPassword(
+    @Body(new ZodValidationPipe(updatePasswordSchema))
+    body: { username: string; password: string },
+    @Req() req: ExtendedRequest,
+  ) {
+    const { username, password } = body;
+    if (!username || !password) {
+      throw new HttpException(
+        'Email and password are required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.authService.updatePassword(username, password);
+    return ApiResponseDto.success({}, 'Password updated successfully', 200);
   }
-  await this.authService.updatePassword(username, password);
-  return ApiResponseDto.success({}, 'Password updated successfully', 200);
-}
 
   @Post('request-magic-link')
   async requestMagicLink(
@@ -365,19 +365,19 @@ async resetPassword(
     const pateintUrl = process.env.PATIENT_URL;
 
     const magicLink = `${pateintUrl}/login?token=${token}`;
-  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
-  console.log("magic link",magicLink);
-  
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+    this.logger.log(`magic link: ${magicLink}`);
 
-  if (isEmail) {
-    await this.emailService.sendSelfInvitationEmail(contact, magicLink);
-    this.logger.log(`Magic link email sent to ${contact}`, { magicLink });
-  } else {
-    this.logger.log(`Magic link created but not sent (not an email)`, {
-      contact,
-      magicLink,
-    });
-  }
+
+    if (isEmail) {
+      await this.emailService.sendSelfInvitationEmail(contact, magicLink);
+      this.logger.log(`Magic link email sent to ${contact}`, { magicLink });
+    } else {
+      this.logger.log(`Magic link created but not sent (not an email)`, {
+        contact,
+        magicLink,
+      });
+    }
 
     this.logger.log(`magic link created and sent`, { magicLink });
 

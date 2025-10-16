@@ -1,5 +1,6 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { HttpExceptionHelper } from '../common/helpers/execption/http-exception.helper';
 import {
   ConnectionQualityDto,
   MediaDeviceStatusDto,
@@ -30,10 +31,10 @@ export class EnhancedRealtimeService {
     });
 
     if (!consultation) {
-      throw new NotFoundException('Consultation not found');
+      throw HttpExceptionHelper.notFound('Consultation not found');
     }
     if (!consultation.waitingRoomEnabled) {
-      throw new BadRequestException('Waiting room is not enabled for this consultation');
+      throw HttpExceptionHelper.badRequest('Waiting room is not enabled for this consultation');
     }
 
     // Check if user already has an active waiting room session
@@ -133,7 +134,7 @@ export class EnhancedRealtimeService {
     });
 
     if (!session) {
-      throw new NotFoundException('Patient not found in waiting room');
+      throw HttpExceptionHelper.notFound('Patient not found in waiting room');
     }
 
     await this.databaseService.waitingRoomSession.update({

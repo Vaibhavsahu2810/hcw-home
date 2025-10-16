@@ -66,7 +66,7 @@ export class InviteService {
   }
 
   async getInvitesByPractitioner(practitionerId: number, page: number = 1, limit: number = 10) {
-    console.log(`[InviteService] Fetching invites for practitioner ${practitionerId}, page ${page}, limit ${limit}`);
+    this.logger.log(`Fetching invites for practitioner ${practitionerId}, page ${page}, limit ${limit}`);
     const skip = (page - 1) * limit;
 
     // First, let's check all invitations in the database for debugging
@@ -81,8 +81,8 @@ export class InviteService {
       orderBy: { createdAt: 'desc' },
       take: 20
     });
-    console.log(`[InviteService] All recent invitations in database:`, allInvitations);
-    console.log(`[InviteService] Looking for invitations with createdById = ${practitionerId}`);
+    this.logger.debug(`All recent invitations in database: ${JSON.stringify(allInvitations)}`);
+    this.logger.log(`Looking for invitations with createdById = ${practitionerId}`);
 
     const [invites, total] = await Promise.all([
       this.prisma.consultationInvitation.findMany({
@@ -113,7 +113,7 @@ export class InviteService {
       })
     ]);
 
-    console.log(`[InviteService] Found ${invites.length} invites out of ${total} total`);
+    this.logger.log(`Found ${invites.length} invites out of ${total} total`);
 
     const formattedInvites = invites.map(invite => {
       // Determine acceptance status based on invitation status
@@ -165,7 +165,7 @@ export class InviteService {
       }
     };
 
-    console.log(`[InviteService] Returning response with ${formattedInvites.length} formatted invites`);
+    this.logger.log(`Returning response with ${formattedInvites.length} formatted invites`);
     return response;
   }
 
@@ -237,7 +237,7 @@ export class InviteService {
   }
 
   async createInvite(inviteData: any) {
-    console.log('[InviteService] 📝 Creating invite with data:', {
+    this.logger.log('Creating invite with data', {
       email: inviteData.email,
       name: inviteData.name,
       consultationId: inviteData.consultationId,
@@ -263,7 +263,7 @@ export class InviteService {
       }
     });
 
-    console.log('[InviteService] ✅ Invite created in database:', {
+    this.logger.log('Invite created in database', {
       id: invite.id,
       token: invite.token,
       email: invite.inviteEmail
@@ -282,12 +282,12 @@ export class InviteService {
     }
 
     // Send invitation email if not manual send
-    console.log('[InviteService] manualSend flag:', inviteData.manualSend);
+    this.logger.log(`manualSend flag: ${inviteData.manualSend}`);
     if (!inviteData.manualSend) {
-      console.log('[InviteService] 📨 Triggering email send...');
+      this.logger.log('Triggering email send...');
       await this.sendInvitationEmail(invite, consultation, inviteData.timezone || 'Asia/Kolkata');
     } else {
-      console.log('[InviteService] ⏭️ Skipping email send (manual send flag is true)');
+      this.logger.log('Skipping email send (manual send flag is true)');
     }
 
     return {
@@ -326,7 +326,7 @@ export class InviteService {
         });
       }
 
-      console.log('[InviteService] 📧 Preparing to send invitation email:', {
+      this.logger.log('Preparing to send invitation email', {
         to: invite.inviteEmail,
         practitionerName,
         consultationId: consultation.id,
@@ -349,11 +349,10 @@ export class InviteService {
         deviceTestCutoffIST
       );
 
-      console.log('[InviteService] ✅ Invitation email sent successfully to:', invite.inviteEmail);
+      this.logger.log(`Invitation email sent successfully to: ${invite.inviteEmail}`);
 
     } catch (error) {
-      console.error('[InviteService] ❌ Failed to send invitation email:', error);
-      console.error('[InviteService] Error details:', {
+      this.logger.error('Failed to send invitation email', {
         message: error?.message,
         stack: error?.stack,
         email: invite.inviteEmail
@@ -576,7 +575,7 @@ export class InviteService {
 
     // In a real implementation, you would use a job queue like Bull or a cron job
     // For now, we'll just log when the email should be sent
-    console.log(`Pre-consultation email should be sent at: ${reminderTime.toISOString()} for invitation ${invite.id}`);
+    this.logger.log(`Pre-consultation email should be sent at: ${reminderTime.toISOString()} for invitation ${invite.id}`);
 
     // TODO: Implement actual scheduling using a job queue
     // This could be done with:
@@ -620,14 +619,14 @@ export class InviteService {
         invite.consultation.scheduledDate!
       );
 
-      console.log(`Pre-consultation email sent successfully to ${invite.inviteEmail} for consultation ${invite.consultationId}`);
+      this.logger.log(`Pre-consultation email sent successfully to ${invite.inviteEmail} for consultation ${invite.consultationId}`);
 
       return {
         success: true,
         message: 'Pre-consultation email sent successfully'
       };
     } catch (error) {
-      console.error('Failed to send pre-consultation email:', error);
+      this.logger.error('Failed to send pre-consultation email:', error);
       throw new Error(`Failed to send pre-consultation email: ${error.message}`);
     }
   }
@@ -658,7 +657,7 @@ export class InviteService {
       try {
         await this.sendPreConsultationEmail(invite.id);
       } catch (error) {
-        console.error(`Failed to send pre-consultation email for invitation ${invite.id}:`, error);
+        this.logger.error(`Failed to send pre-consultation email for invitation ${invite.id}:`, error);
       }
     }
 

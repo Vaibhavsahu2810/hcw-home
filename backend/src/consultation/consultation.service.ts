@@ -752,12 +752,12 @@ export class ConsultationService {
     const createdConsultation = txResult.consultation;
     isNewPatient = txResult.isNewPatient;
 
-    console.log(`[ConsultationService] Created consultation ${createdConsultation.id} for patient ${createdPatient.email}`);
+    this.logger.log(`Created consultation ${createdConsultation.id} for patient ${createdPatient.email}`);
 
     // Send email invitation to the patient if email is provided
     if (isEmail && createdPatient.email) {
       try {
-        console.log(`[ConsultationService] Creating invitation for consultation ${createdConsultation.id}, practitioner ${practitionerId}, patient ${createdPatient.email}`);
+        this.logger.log(`Creating invitation for consultation ${createdConsultation.id}, practitioner ${practitionerId}, patient ${createdPatient.email}`);
         const invitation = await this.consultationInvitationService.createInvitation(
           createdConsultation.id,
           practitionerId,
@@ -765,13 +765,13 @@ export class ConsultationService {
           UserRole.PATIENT,
           createDto.firstName + ' ' + createDto.lastName,
         );
-        console.log(`[ConsultationService] Successfully created invitation ${invitation.id} for consultation ${createdConsultation.id}`);
+        this.logger.log(`Successfully created invitation ${invitation.id} for consultation ${createdConsultation.id}`);
       } catch (error) {
-        console.error('[ConsultationService] Failed to send email invitation:', error);
+        this.logger.error('Failed to send email invitation:', error);
         // Don't fail the entire operation if email sending fails
       }
     } else {
-      console.log(`[ConsultationService] Skipping invitation creation - isEmail: ${isEmail}, email: ${createdPatient.email}`);
+      this.logger.log(`Skipping invitation creation - isEmail: ${isEmail}, email: ${createdPatient.email}`);
     }
 
     let scheduledDate = createDto.scheduledDate;
