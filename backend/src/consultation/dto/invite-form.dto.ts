@@ -11,6 +11,18 @@ import {
 import { Type } from 'class-transformer';
 import { ConsultationStatus } from '@prisma/client';
 
+export class GuestsDto {
+  @ApiPropertyOptional({ description: 'Include loved one as guest' })
+  @IsOptional()
+  @IsBoolean()
+  lovedOne?: boolean;
+
+  @ApiPropertyOptional({ description: 'Include colleague as guest' })
+  @IsOptional()
+  @IsBoolean()
+  colleague?: boolean;
+}
+
 export class CreatePatientConsultationDto {
   @ApiProperty({ description: 'Patient first name' })
   @IsString()
