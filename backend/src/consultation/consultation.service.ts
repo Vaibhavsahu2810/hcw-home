@@ -5,6 +5,7 @@ import {
   HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
+import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import {
   ConsultationStatus,
@@ -53,9 +54,10 @@ import {
 } from './dto/open-consultation.dto';
 import { EmailService } from 'src/common/email/email.service';
 import { AddParticipantDto } from './dto/add-participant.dto';
-import { ConsultationInvitationService } from './consultation-invitation.service';
+import { InviteService } from '../auth/invite/invite.service';
 import { ConsultationUtilityService } from './consultation-utility.service';
 import { ConsultationMediaSoupService } from './consultation-mediasoup.service';
+import { ChatService } from 'src/chat/chat.service';
 import {
   CreatePatientConsultationDto,
   CreatePatientConsultationResponseDto,
@@ -69,18 +71,21 @@ import {
 @Injectable()
 export class ConsultationService {
   private readonly logger = new Logger(ConsultationService.name);
+  // In-memory session timers for practitioner-joined consultations (warnings/cleanup scheduling)
+  private sessionTimers = new Map<number, { warning?: NodeJS.Timeout; cleanup?: NodeJS.Timeout }>();
   constructor(
     private readonly db: DatabaseService,
     private readonly configService: ConfigService,
     private readonly availabilityService: AvailabilityService,
     private readonly emailService: EmailService,
-    private readonly consultationInvitationService: ConsultationInvitationService,
+    private readonly consultationInvitationService: InviteService,
     private readonly consultationUtilityService: ConsultationUtilityService,
     private readonly consultationMediaSoupService: ConsultationMediaSoupService,
     private readonly mediasoupSessionService: MediasoupSessionService,
     @Inject(CONSULTATION_GATEWAY_TOKEN)
     private readonly consultationGateway: IConsultationGateway,
     private readonly reminderService: ReminderService,
+    private readonly chatService: ChatService,
   ) { }
 
   async addParticipantToConsultation(
@@ -289,6 +294,149 @@ export class ConsultationService {
       // Handle unexpected errors
       throw HttpExceptionHelper.internalServerError(
         'Failed to add participant to consultation',
+        undefined,
+        undefined,
+        error,
+      );
+    }
+  }
+
+  async generateMagicLinkForParticipant(
+    consultationId: number,
+    userId: number,
+    email: string,
+    role: UserRole,
+    name: string,
+    notes?: string,
+    expiresInMinutes: number = 60,
+  ): Promise<ApiResponseDto<any>> {
+    try {
+      if (!email?.trim()) {
+        throw HttpExceptionHelper.badRequest('Email is required');
+      }
+
+      const trimmedEmail = email.trim().toLowerCase();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        throw HttpExceptionHelper.badRequest('Invalid email format');
+      }
+
+      // Validate role
+      const allowedRoles: UserRole[] = [
+        UserRole.EXPERT,
+        UserRole.GUEST,
+        UserRole.PATIENT,
+      ];
+      if (!allowedRoles.includes(role)) {
+        throw HttpExceptionHelper.badRequest(
+          `Invalid role. Allowed roles: ${allowedRoles.join(', ')}`,
+        );
+      }
+
+      const consultation = await this.db.consultation.findUnique({
+        where: { id: consultationId },
+        include: {
+          owner: true,
+        },
+      });
+
+      if (!consultation) {
+        throw HttpExceptionHelper.notFound('Consultation not found');
+      }
+
+      const requester = await this.db.user.findUnique({
+        where: { id: userId },
+      });
+      if (!requester) {
+        throw HttpExceptionHelper.notFound('Requesting user not found');
+      }
+
+      // Enhanced authorization checks
+      if (
+        requester.role !== UserRole.PRACTITIONER &&
+        requester.role !== UserRole.ADMIN
+      ) {
+        throw HttpExceptionHelper.forbidden(
+          'Only practitioners and admins can generate magic links',
+        );
+      }
+
+      if (
+        requester.role === UserRole.PRACTITIONER &&
+        consultation.ownerId !== userId
+      ) {
+        throw HttpExceptionHelper.forbidden(
+          'Only the consultation owner (practitioner) can generate magic links',
+        );
+      }
+
+      // Generate invitation and magic link
+      const invitation =
+        await this.consultationInvitationService.createInvitationEmail(
+          consultationId,
+          userId,
+          trimmedEmail,
+          role,
+          name?.trim(),
+          notes?.trim(),
+          expiresInMinutes,
+        );
+
+      const magicLinkUrl = this.consultationUtilityService.generateMagicLinkUrl(
+        invitation.token,
+        role
+      );
+
+      // Emit real-time notification to current participants
+      if (this.consultationGateway.server) {
+        this.consultationGateway.server
+          .to(`consultation:${consultationId}`)
+          .emit('magic_link_generated', {
+            consultationId,
+            email: trimmedEmail,
+            role,
+            name: name?.trim(),
+            notes: notes?.trim(),
+            generatedBy: {
+              id: requester.id,
+              firstName: requester.firstName,
+              lastName: requester.lastName,
+            },
+            expiresAt: invitation.expiresAt,
+          });
+      }
+
+      this.logger.log(
+        `Magic link generated - Email: ${trimmedEmail}, Role: ${role}, Consultation: ${consultationId}, By: ${userId}`,
+      );
+
+      return ApiResponseDto.success(
+        {
+          magicLink: magicLinkUrl,
+          token: invitation.token,
+          expiresAt: invitation.expiresAt,
+          email: trimmedEmail,
+          role,
+          name: name?.trim(),
+        },
+        'Magic link generated successfully',
+        200,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to generate magic link for consultation ${consultationId}: ${error.message}`,
+        error.stack,
+      );
+
+      // Re-throw known HTTP exceptions
+      if (error.status) {
+        throw error;
+      }
+
+      // Handle unexpected errors
+      throw HttpExceptionHelper.internalServerError(
+        'Failed to generate magic link',
         undefined,
         undefined,
         error,
@@ -531,34 +679,103 @@ export class ConsultationService {
 
     let isNewPatient = false;
 
-    if (!patient) {
-      const tempPassword = 'temp123';
-      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+    // Perform patient creation (if needed), consultation creation and participant creation in a transaction
+    const txResult = await this.db.$transaction(async (tx) => {
+      let createdPatient = patient;
+      let createdNew = isNewPatient;
 
-      const patientData = {
-        role: UserRole.PATIENT,
-        firstName: createDto.firstName,
-        lastName: createDto.lastName,
-        sex: this.mapGenderToUserSex(createDto.gender),
-        temporaryAccount: true,
-        password: hashedPassword,
-        ...(isEmail
-          ? { email: createDto.contact }
-          : {
-            phoneNumber: createDto.contact,
-            email: `temp_${Date.now()}@temporary.local`,
-          }),
+      if (!createdPatient) {
+        const tempPassword = 'temp123';
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+        const patientData = {
+          role: UserRole.PATIENT,
+          firstName: createDto.firstName,
+          lastName: createDto.lastName,
+          sex: this.mapGenderToUserSex(createDto.gender),
+          temporaryAccount: true,
+          password: hashedPassword,
+          ...(isEmail
+            ? { email: createDto.contact }
+            : {
+              phoneNumber: createDto.contact,
+              email: `temp_${Date.now()}@temporary.local`,
+            }),
+        };
+
+        createdPatient = await tx.user.create({ data: patientData });
+        createdNew = true;
+      }
+
+      const consultationData = {
+        ownerId: practitionerId,
+        groupId: createDto.group ? parseInt(createDto.group) : null,
+        specialityId: createDto.specialityId || null,
+        symptoms: createDto.symptoms || null,
+        scheduledDate: createDto.scheduledDate || null,
+        status: ConsultationStatus.SCHEDULED,
+        createdAt: new Date(),
+        startedAt: new Date(),
       };
 
-      patient = await this.db.user.create({
-        data: patientData,
+      const consultation = await tx.consultation.create({ data: consultationData });
+
+      await tx.participant.create({
+        data: {
+          consultationId: consultation.id,
+          userId: createdPatient.id,
+          role: UserRole.PATIENT,
+          isBeneficiary: true,
+          language: createDto.language,
+          inWaitingRoom: true,
+        },
       });
 
-      isNewPatient = true;
+      await tx.participant.create({
+        data: {
+          consultationId: consultation.id,
+          userId: practitionerId,
+          role: UserRole.PRACTITIONER,
+          isBeneficiary: false,
+          inWaitingRoom: false,
+        },
+      });
+
+      return {
+        patient: createdPatient,
+        consultation,
+        isNewPatient: createdNew,
+      };
+    });
+
+    const createdPatient = txResult.patient;
+    const createdConsultation = txResult.consultation;
+    isNewPatient = txResult.isNewPatient;
+
+    this.logger.log(`Created consultation ${createdConsultation.id} for patient ${createdPatient.email}`);
+
+    // Send email invitation to the patient if email is provided
+    if (isEmail && createdPatient.email) {
+      try {
+        this.logger.log(`Creating invitation for consultation ${createdConsultation.id}, practitioner ${practitionerId}, patient ${createdPatient.email}`);
+        const invitation = await this.consultationInvitationService.createInvitation(
+          createdConsultation.id,
+          practitionerId,
+          createdPatient.email,
+          UserRole.PATIENT,
+          createDto.firstName + ' ' + createDto.lastName,
+        );
+        this.logger.log(`Successfully created invitation ${invitation.id} for consultation ${createdConsultation.id}`);
+      } catch (error) {
+        this.logger.error('Failed to send email invitation:', error);
+        // Don't fail the entire operation if email sending fails
+      }
+    } else {
+      this.logger.log(`Skipping invitation creation - isEmail: ${isEmail}, email: ${createdPatient.email}`);
     }
 
     let scheduledDate = createDto.scheduledDate;
-    
+
     if (createDto.planLater && createDto.plannedDate && createDto.plannedTime && createDto.timezone) {
       const dateTimeString = `${createDto.plannedDate}T${createDto.plannedTime}:00`;
       scheduledDate = new Date(dateTimeString);
@@ -576,24 +793,26 @@ export class ConsultationService {
       startedAt: new Date(),
     };
 
-    const consultation = await this.db.consultation.create({
+    const newConsultation = await this.db.consultation.create({
       data: consultationData,
     });
 
-    await this.db.participant.create({
-      data: {
-        consultationId: consultation.id,
-        userId: patient.id,
-        role: UserRole.PATIENT,
-        isBeneficiary: true,
-        language: createDto.language,
-        inWaitingRoom: true,
-      },
-    });
+    if (patient) {
+      await this.db.participant.create({
+        data: {
+          consultationId: newConsultation.id,
+          userId: patient.id,
+          role: UserRole.PATIENT,
+          isBeneficiary: true,
+          language: createDto.language,
+          inWaitingRoom: true,
+        },
+      });
+    }
 
     await this.db.participant.create({
       data: {
-        consultationId: consultation.id,
+        consultationId: newConsultation.id,
         userId: practitionerId,
         role: UserRole.PRACTITIONER,
         isBeneficiary: false,
@@ -603,19 +822,19 @@ export class ConsultationService {
 
     const response: CreatePatientConsultationResponseDto = {
       patient: {
-        id: patient.id,
-        firstName: patient.firstName,
-        lastName: patient.lastName,
-        email: patient.email,
-        phoneNumber: patient.phoneNumber ?? undefined,
+        id: createdPatient.id,
+        firstName: createdPatient.firstName,
+        lastName: createdPatient.lastName,
+        email: createdPatient.email,
+        phoneNumber: createdPatient.phoneNumber ?? undefined,
         isNewPatient,
       },
       consultation: {
-        id: consultation.id,
-        status: consultation.status,
-        ownerId: consultation.ownerId!,
-        scheduledDate: consultation.scheduledDate
-          ? new Date(consultation.scheduledDate)
+        id: newConsultation.id,
+        status: newConsultation.status,
+        ownerId: newConsultation.ownerId!,
+        scheduledDate: newConsultation.scheduledDate
+          ? new Date(newConsultation.scheduledDate)
           : undefined,
       },
     };
@@ -623,8 +842,8 @@ export class ConsultationService {
     return {
       data: response,
       message: isNewPatient
-        ? 'Patient created and consultation scheduled successfully'
-        : 'Consultation scheduled for existing patient successfully',
+        ? 'Patient created and consultation scheduled successfully. Invitation email sent.'
+        : 'Consultation scheduled for existing patient successfully. Invitation email sent.',
       statusCode: HttpStatus.CREATED,
     };
   }
@@ -778,6 +997,52 @@ export class ConsultationService {
           joinTime: new Date(),
           language: patient.country ?? null,
         });
+      // Also emit a canonical waiting_room_notification for dashboard UI and audio alerts
+      try {
+        const initials = `${(patient.firstName?.[0] ?? '')}${(patient.lastName?.[0] ?? '')}`.toUpperCase();
+        this.consultationGateway.server
+          .to(`practitioner:${consultation.ownerId}`)
+          .emit('waiting_room_notification', {
+            consultationId,
+            patientId: patient.id,
+            patientFirstName: patient.firstName ?? 'Patient',
+            patientInitials: initials,
+            joinTime: new Date().toISOString(),
+            language: patient.country ?? null,
+            message: 'Patient joined and is waiting',
+          });
+        // Targeted patient joined event for dashboard and immediate UI update + sound
+        // Use centralized gateway helper to apply debounce and consistent logging
+        try {
+          const requestId = uuidv4(); // generate request id for traceability
+          const payload = {
+            consultationId,
+            patientId: patient.id,
+            patientFirstName: patient.firstName ?? 'Patient',
+            joinTime: new Date().toISOString(),
+            message: 'Patient joined and is waiting',
+            origin: 'api',
+            requestId,
+          };
+
+          this.logger.log({
+            message: 'Emit patient_joined from service',
+            consultationId,
+            patientId: patient.id,
+            origin: 'api',
+            timestamp: new Date().toISOString(),
+          } as any);
+
+          (this.consultationGateway as any).emitPatientJoinedToPractitioner(
+            consultation.ownerId,
+            payload,
+          );
+        } catch (innerErr) {
+          this.logger.warn(`Failed to emit patient_joined via gateway helper: ${innerErr?.message ?? innerErr}`);
+        }
+      } catch (e) {
+        this.logger.warn(`Failed to emit waiting_room_notification (joinAsPatient): ${e?.message ?? e}`);
+      }
     }
 
     // MediaSoup session events are now handled by the enhanced participant join method above
@@ -902,6 +1167,7 @@ export class ConsultationService {
           lastName: true,
           role: true,
           email: true,
+          country: true,
         },
       });
 
@@ -1054,7 +1320,6 @@ export class ConsultationService {
           `MediaSoup setup failed for smart patient join: ${mediaErr.message}`,
           mediaErr.stack,
         );
-        // Don't fail the join for media errors, just log them
       }
 
       // Emit production-grade WebSocket events with proper URLs
@@ -1118,6 +1383,23 @@ export class ConsultationService {
                 patientManagementUrl: consultationUrls.practitioner.patientManagement,
               },
             });
+          // Emit canonical waiting_room_notification to practitioner for dashboard
+          try {
+            const initials = `${(patient.firstName?.[0] ?? '')}${(patient.lastName?.[0] ?? '')}`.toUpperCase();
+            this.consultationGateway.server
+              .to(`practitioner:${consultation.ownerId}`)
+              .emit('waiting_room_notification', {
+                consultationId,
+                patientId: patient.id,
+                patientFirstName: patient.firstName,
+                patientInitials: initials,
+                joinTime: new Date().toISOString(),
+                language: patient.country ?? null,
+                message: message,
+              });
+          } catch (e) {
+            this.logger.warn(`Failed to emit waiting_room_notification (smartPatientJoin): ${e?.message ?? e}`);
+          }
         }
 
         // Notify all participants in consultation
@@ -1356,25 +1638,100 @@ export class ConsultationService {
       }
 
       if (this.consultationGateway.server) {
+        const pjRequestId = uuidv4();
         this.consultationGateway.server
           .to(`consultation:${consultationId}`)
           .emit('practitioner_joined', {
             practitionerId,
             consultationId,
             message: 'Practitioner has joined the consultation',
+            requestId: pjRequestId,
+            timestamp: new Date().toISOString(),
           });
+
+        // schedule a gentle session warning/cleanup if practitioner does not start media within configured time
+        try {
+          const warningMs = Math.max(30 * 1000, Math.floor(this.configService.sessionTimeoutMs / 10));
+          const cleanupMs = Math.max(5 * 60 * 1000, this.configService.sessionTimeoutMs);
+
+          // clear any existing timers
+          const existingTimers = this.sessionTimers.get(consultationId);
+          if (existingTimers?.warning) clearTimeout(existingTimers.warning);
+          if (existingTimers?.cleanup) clearTimeout(existingTimers.cleanup);
+
+          const warningTimer = setTimeout(() => {
+            try {
+              this.consultationGateway.server
+                .to(`consultation:${consultationId}`)
+                .emit('practitioner_session_warning', {
+                  consultationId,
+                  message: 'Practitioner joined but session not started; sending reminder/cleanup in a short while',
+                  requestId: pjRequestId,
+                  timestamp: new Date().toISOString(),
+                });
+            } catch (e) {
+              this.logger.warn(`Failed to emit practitioner_session_warning for ${consultationId}: ${e?.message ?? e}`);
+            }
+          }, warningMs);
+
+          const cleanupTimer = setTimeout(() => {
+            try {
+              this.consultationGateway.server
+                .to(`consultation:${consultationId}`)
+                .emit('practitioner_session_cleanup', {
+                  consultationId,
+                  message: 'Practitioner did not start session; marking consultation for cleanup',
+                  requestId: pjRequestId,
+                  timestamp: new Date().toISOString(),
+                });
+
+              // Optionally mark consultation as SCHEDULED again or take other cleanup actions here
+            } catch (e) {
+              this.logger.warn(`Failed to emit practitioner_session_cleanup for ${consultationId}: ${e?.message ?? e}`);
+            } finally {
+              this.sessionTimers.delete(consultationId);
+            }
+          }, cleanupMs);
+
+          this.sessionTimers.set(consultationId, { warning: warningTimer, cleanup: cleanupTimer });
+        } catch (e) {
+          this.logger.warn(`Failed to schedule practitioner session timer: ${e?.message ?? e}`);
+        }
       }
 
       if (routerCreated && this.consultationGateway.server) {
+        const mediaRequestId = uuidv4();
         this.consultationGateway.server
           .to(`consultation:${consultationId}`)
-          .emit('media_session_live', { consultationId });
+          .emit('media_session_live', { consultationId, mediasoupReady: true, requestId: mediaRequestId, timestamp: new Date().toISOString() });
+        // clear any session timer as media is live
+        try {
+          const existing = this.sessionTimers.get(consultationId);
+          if (existing) {
+            if (existing.warning) clearTimeout(existing.warning as any);
+            if (existing.cleanup) clearTimeout(existing.cleanup as any);
+            this.sessionTimers.delete(consultationId);
+          }
+        } catch (e) {
+          this.logger.warn(`Failed to clear session timer after media went live: ${e?.message ?? e}`);
+        }
       }
 
       const practitionerCapabilities =
         this.consultationUtilityService.getConsultationCapabilities(
           UserRole.PRACTITIONER,
         );
+      // Fetch unread message count for practitioner (non-blocking)
+      let unreadMessageCount = 0;
+      try {
+        unreadMessageCount = await this.chatService.getUnreadMessageCount(
+          practitionerId,
+          consultationId,
+        );
+      } catch (e) {
+        this.logger.warn(`Failed to fetch unread message count for practitioner ${practitionerId} in consultation ${consultationId}: ${e?.message ?? e}`);
+        unreadMessageCount = 0;
+      }
 
       const responsePayload: JoinConsultationResponseDto = {
         success: true,
@@ -1405,6 +1762,7 @@ export class ConsultationService {
           mediaType: m.mediaType ?? null,
           createdAt: m.createdAt,
         })),
+        unreadMessageCount,
       };
 
       this.logger.log(
@@ -1646,6 +2004,24 @@ export class ConsultationService {
               message:
                 'Patient joined via invitation and is waiting for admission',
             });
+
+          // Also send canonical waiting_room_notification for dashboard
+          try {
+            const initials = `${(user.firstName?.[0] ?? '')}${(user.lastName?.[0] ?? '')}`.toUpperCase();
+            this.consultationGateway.server
+              .to(`practitioner:${consultation.ownerId}`)
+              .emit('waiting_room_notification', {
+                consultationId: consultation.id,
+                patientId: user.id,
+                patientFirstName: user.firstName ?? 'Patient',
+                patientInitials: initials,
+                joinTime: new Date().toISOString(),
+                language: user.country ?? null,
+                message: 'Patient joined via invitation and is waiting for admission',
+              });
+          } catch (e) {
+            this.logger.warn(`Failed to emit waiting_room_notification (joinByToken): ${e?.message ?? e}`);
+          }
 
           this.consultationGateway.server
             .to(`consultation:${consultation.id}`)
@@ -1980,7 +2356,7 @@ export class ConsultationService {
           error,
         );
       }
-      console.error('Admission failed:', error);
+      this.logger.error('Admission failed:', error);
       throw HttpExceptionHelper.internalServerError(
         'Failed to admit patient',
         error,
@@ -2035,9 +2411,9 @@ export class ConsultationService {
     const practitionerGroupIds = practitioner.GroupMember.map(gm => gm.groupId);
     const practitionerSpecialityIds = practitioner.specialities.map(s => s.specialityId);
 
+
     const whereClause: any = {
       status: ConsultationStatus.WAITING,
-      ownerId: null, // Only show unassigned consultations
       participants: {
         some: { isActive: true, user: { role: UserRole.PATIENT } },
       },
@@ -2051,17 +2427,24 @@ export class ConsultationService {
 
     // If practitioner is in groups, show consultations for those groups
     if (practitionerGroupIds.length > 0) {
+      // only include unassigned consultations for groups
       whereClause.OR.push({
+        ownerId: null,
         groupId: { in: practitionerGroupIds }
       });
     }
 
     // If practitioner has specialities, show consultations for those specialities
     if (practitionerSpecialityIds.length > 0) {
+      // only include unassigned consultations for specialities
       whereClause.OR.push({
+        ownerId: null,
         specialityId: { in: practitionerSpecialityIds }
       });
     }
+
+    // include consultations explicitly assigned to this practitioner
+    whereClause.OR.push({ ownerId: practitionerId });
 
     // If practitioner is admin, show all unassigned consultations
     if (practitioner.role === UserRole.ADMIN) {
@@ -2416,7 +2799,7 @@ export class ConsultationService {
           error,
         );
       }
-      console.error('Admission failed:', error);
+      this.logger.error('Admission failed:', error);
       throw HttpExceptionHelper.internalServerError(
         'Failed to admit patient',
         error,
@@ -2525,9 +2908,7 @@ export class ConsultationService {
     requestingUserId: number,
   ): Promise<Buffer> {
     try {
-      console.log(
-        `Starting PDF generation for consultation ${consultationId} by user ${requestingUserId}`,
-      );
+      this.logger.log(`Starting PDF generation for consultation ${consultationId} by user ${requestingUserId}`);
 
       const consultation = await this.db.consultation.findUnique({
         where: { id: consultationId },
@@ -2613,7 +2994,7 @@ export class ConsultationService {
 
       return await this.generateConsultationPDF(consultation);
     } catch (error) {
-      console.error(`Error in downloadConsultationPdf:`, error);
+      this.logger.error(`Error in downloadConsultationPdf:`, error);
       throw error;
     }
   }
@@ -2626,7 +3007,7 @@ export class ConsultationService {
       });
       return user?.role === 'ADMIN';
     } catch (error) {
-      console.error(`Error checking admin status for user ${userId}:`, error);
+      this.logger.error(`Error checking admin status for user ${userId}:`, error);
       return false;
     }
   }
@@ -2649,7 +3030,7 @@ export class ConsultationService {
         this.addPDFFooter(doc);
         doc.end();
       } catch (error) {
-        console.error('Error in generateConsultationPDF:', error);
+        this.logger.error('Error in generateConsultationPDF:', error);
         reject(error);
       }
     });
@@ -3178,24 +3559,35 @@ export class ConsultationService {
       throw HttpExceptionHelper.badRequest('Invalid practitioner');
     }
 
-    const updatedConsultation = await this.db.consultation.update({
-      where: { id: consultationId },
-      data: {
-        ownerId: practitionerId,
-        status: ConsultationStatus.SCHEDULED,
-        version: { increment: 1 },
-      },
-      include: {
-        owner: true,
-        participants: {
-          where: { user: { role: UserRole.PATIENT } },
-          include: { user: true }
-        }
-      },
+    // Use a transaction to ensure consistent DB state in multi-step flow
+    const updatedConsultation = await this.db.$transaction(async (tx) => {
+      const consultationUpdate = await tx.consultation.update({
+        where: { id: consultationId },
+        data: {
+          ownerId: practitionerId,
+          status: ConsultationStatus.SCHEDULED,
+          version: { increment: 1 },
+        },
+        include: {
+          owner: true,
+          participants: {
+            where: { user: { role: UserRole.PATIENT } },
+            include: { user: true },
+          },
+        },
+      });
+
+      // Create an audit log entry or other follow-up DB updates here if needed in future
+      return consultationUpdate;
     });
 
-    // Send email notification to patient
-    await this.sendPatientAssignmentNotification(updatedConsultation, practitioner);
+    // Send email notification to patient (non-blocking for DB transaction)
+    try {
+      await this.sendPatientAssignmentNotification(updatedConsultation, practitioner);
+    } catch (err) {
+      this.logger.error('Failed to send patient assignment email after assignment', err);
+      // Do not roll back assignment for transient email failures
+    }
 
     // Emit real-time cleanup events
     await this.emitWaitingRoomCleanup(consultationId, practitionerId);
@@ -3263,7 +3655,7 @@ export class ConsultationService {
         );
       }
 
-      // Atomic assignment to prevent race conditions
+      // Atomic assignment to prevent race conditions (single update guard)
       const updatedConsultation = await this.db.consultation.update({
         where: {
           id: consultationId,
@@ -3278,8 +3670,8 @@ export class ConsultationService {
           owner: true,
           participants: {
             where: { user: { role: UserRole.PATIENT } },
-            include: { user: true }
-          }
+            include: { user: true },
+          },
         },
       });
 
@@ -3353,18 +3745,57 @@ export class ConsultationService {
     assignedPractitionerId: number,
   ): Promise<void> {
     try {
-      // Get all practitioners who might have had this consultation in their waiting room
-      const eligiblePractitioners = await this.db.user.findMany({
-        where: {
-          role: { in: [UserRole.PRACTITIONER, UserRole.ADMIN] },
-          id: { not: assignedPractitionerId }, // Exclude the assigned practitioner
-        },
+      // Fetch consultation to determine group/speciality so we can target emits
+      const consultation = await this.db.consultation.findUnique({
+        where: { id: consultationId },
+        select: { groupId: true, specialityId: true },
+      });
+
+      if (!consultation) return;
+
+      // Query practitioners who either are admins OR match the consultation's group/speciality
+      const whereClause: any = {
+        role: { in: [UserRole.PRACTITIONER] },
+        id: { not: assignedPractitionerId },
+      };
+
+      // Build OR conditions based on group/speciality
+      const orConditions: any[] = [];
+      if (consultation.groupId) {
+        orConditions.push({ GroupMember: { some: { groupId: consultation.groupId } } });
+      }
+      if (consultation.specialityId) {
+        orConditions.push({ specialities: { some: { specialityId: consultation.specialityId } } });
+      }
+
+      // Always include admins so they see all assignments
+      const admins = await this.db.user.findMany({
+        where: { role: UserRole.ADMIN },
         select: { id: true },
       });
 
-      // Emit cleanup events to all other practitioners
-      for (const practitioner of eligiblePractitioners) {
-        this.consultationGateway.emitToUser(practitioner.id, 'waiting_room_consultation_assigned', {
+      let eligiblePractitioners: { id: number }[] = [];
+      if (orConditions.length > 0) {
+        eligiblePractitioners = await this.db.user.findMany({
+          where: {
+            AND: [
+              whereClause,
+              { OR: orConditions },
+            ],
+          },
+          select: { id: true },
+        });
+      }
+
+      const targets = new Map<number, true>();
+      admins.forEach((a) => targets.set(a.id, true));
+      eligiblePractitioners.forEach((p) => targets.set(p.id, true));
+
+      // Remove the assigned practitioner if present
+      targets.delete(assignedPractitionerId);
+
+      for (const practitionerId of Array.from(targets.keys())) {
+        this.consultationGateway.emitToUser(practitionerId, 'waiting_room_consultation_assigned', {
           consultationId,
           assignedToPractitionerId: assignedPractitionerId,
           message: 'This consultation has been assigned to another practitioner',
@@ -3393,7 +3824,6 @@ export class ConsultationService {
         `Failed to emit waiting room cleanup events for consultation ${consultationId}:`,
         error,
       );
-      // Don't throw - WebSocket failure shouldn't break the assignment
     }
   }
 
@@ -3656,5 +4086,52 @@ export class ConsultationService {
         'Failed to retrieve feedback',
       );
     }
+  }
+
+  /**
+   * Test method to emit patient_joined event for development/testing
+   */
+  async testEmitPatientJoined(
+    consultationId: number,
+    practitionerId: number,
+    patientFirstName: string = 'Test Patient'
+  ): Promise<{ success: boolean }> {
+    try {
+      const patientInitials = this.generateInitials(patientFirstName);
+
+      // Use the gateway helper to emit the event
+      (this.consultationGateway as any).emitPatientJoinedToPractitioner(
+        practitionerId,
+        {
+          consultationId,
+          patientId: 999, // Test patient ID
+          patientFirstName,
+          patientInitials,
+          joinTime: new Date().toISOString(),
+          message: 'Test patient joined for demo purposes',
+          origin: 'test_api',
+          requestId: `test_${Date.now()}`
+        }
+      );
+
+      this.logger.log(`Test patient_joined event emitted for consultation ${consultationId} to practitioner ${practitionerId}`);
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error('Failed to emit test patient_joined event:', error);
+      throw HttpExceptionHelper.internalServerError('Failed to emit test event');
+    }
+  }
+
+  /**
+   * Generate initials from name
+   */
+  private generateInitials(name: string): string {
+    if (!name) return 'P';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0][0].toUpperCase();
   }
 }
