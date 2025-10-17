@@ -27,16 +27,11 @@ import { MediaEventType } from '@prisma/client';
 @WebSocketGateway({
   namespace: '/mediasoup',
   cors: {
-    origin: (origin, callback) => {
-      const allowedOrigins = (globalThis['configService']?.corsOrigins) || ['http://localhost:4200', 'http://localhost:4201', 'http://localhost:4202'];
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: '*',
     credentials: true,
     methods: ['GET', 'POST'],
+    allowedHeaders: ['*'],
+    transports: ['websocket', 'polling'],
   },
 })
 export class MediasoupGateway

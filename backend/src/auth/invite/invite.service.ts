@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { HttpExceptionHelper } from '../../common/helpers/execption/http-exception.helper';
 import { DatabaseService } from '../../database/database.service';
 import { InvitationStatus, UserRole } from '@prisma/client';
 import { EmailService } from '../../common/email/email.service';
@@ -176,19 +177,19 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     if (invite.invitedUserId !== userId) {
-      throw new BadRequestException('You are not authorized to accept this invitation');
+      throw HttpExceptionHelper.badRequest('You are not authorized to accept this invitation');
     }
 
     if (invite.status !== InvitationStatus.PENDING) {
-      throw new BadRequestException('Invitation is no longer pending');
+      throw HttpExceptionHelper.badRequest('Invitation is no longer pending');
     }
 
     if (invite.expiresAt < new Date()) {
-      throw new BadRequestException('Invitation has expired');
+      throw HttpExceptionHelper.badRequest('Invitation has expired');
     }
 
     await this.prisma.consultationInvitation.update({
@@ -211,15 +212,15 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     if (invite.invitedUserId !== userId) {
-      throw new BadRequestException('You are not authorized to reject this invitation');
+      throw HttpExceptionHelper.badRequest('You are not authorized to reject this invitation');
     }
 
     if (invite.status !== InvitationStatus.PENDING) {
-      throw new BadRequestException('Invitation is no longer pending');
+      throw HttpExceptionHelper.badRequest('Invitation is no longer pending');
     }
 
     await this.prisma.consultationInvitation.update({
@@ -278,7 +279,7 @@ export class InviteService {
     });
 
     if (!consultation) {
-      throw new NotFoundException('Consultation not found');
+      throw HttpExceptionHelper.notFound('Consultation not found');
     }
 
     // Send invitation email if not manual send
@@ -371,7 +372,7 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     // Debug info
@@ -409,7 +410,7 @@ export class InviteService {
           };
         }
       }
-      throw new BadRequestException(`Invitation has already been processed. Debug: ${JSON.stringify(debugInfo)}`);
+      throw HttpExceptionHelper.badRequest(`Invitation has already been processed. Debug: ${JSON.stringify(debugInfo)}`);
     }
 
     // Check if invitation has expired based on consultation time
@@ -431,7 +432,7 @@ export class InviteService {
 
       if (now >= consultationTime) {
         this.logger.warn(`[acknowledgeInvite] ❌ Consultation time has passed`);
-        throw new BadRequestException(`Consultation time has passed. Invitation is no longer valid. Debug: ${JSON.stringify(debugInfo)}`);
+        throw HttpExceptionHelper.badRequest(`Consultation time has passed. Invitation is no longer valid. Debug: ${JSON.stringify(debugInfo)}`);
       }
 
       this.logger.log(`[acknowledgeInvite] ✅ Time check passed - Invitation is valid`);
@@ -440,7 +441,7 @@ export class InviteService {
     } else {
       // If no consultation scheduled date, fall back to expiresAt
       if (invite.expiresAt < new Date()) {
-        throw new BadRequestException(`Invitation has expired. Debug: ${JSON.stringify(debugInfo)}`);
+        throw HttpExceptionHelper.badRequest(`Invitation has expired. Debug: ${JSON.stringify(debugInfo)}`);
       }
     }
 
@@ -473,7 +474,7 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     // Debug info
@@ -487,7 +488,7 @@ export class InviteService {
 
     // Allow device testing if status is PENDING or USED (re-testing)
     if (invite.status !== InvitationStatus.PENDING && invite.status !== InvitationStatus.USED) {
-      throw new BadRequestException(`Invitation cannot be processed. Debug: ${JSON.stringify(debugInfo)}`);
+      throw HttpExceptionHelper.badRequest(`Invitation cannot be processed. Debug: ${JSON.stringify(debugInfo)}`);
     }
 
     // Check if invitation has expired based on consultation time
@@ -506,19 +507,19 @@ export class InviteService {
 
       if (now >= consultationTime) {
         this.logger.warn(`[completeDeviceTest] ❌ Consultation time has passed`);
-        throw new BadRequestException(`Consultation time has passed. Invitation is no longer valid. Debug: ${JSON.stringify(debugInfo)}`);
+        throw HttpExceptionHelper.badRequest(`Consultation time has passed. Invitation is no longer valid. Debug: ${JSON.stringify(debugInfo)}`);
       }
 
       if (now >= twoMinutesBeforeConsultation) {
         this.logger.warn(`[completeDeviceTest] ❌ Within 2-minute window - device testing not allowed`);
-        throw new BadRequestException(`Device testing period has ended. Please wait for your consultation reminder email. Debug: ${JSON.stringify(debugInfo)}`);
+        throw HttpExceptionHelper.badRequest(`Device testing period has ended. Please wait for your consultation reminder email. Debug: ${JSON.stringify(debugInfo)}`);
       }
 
       this.logger.log(`[completeDeviceTest] ✅ Time check passed - can complete device testing`);
     } else {
       // If no consultation scheduled date, fall back to expiresAt
       if (invite.expiresAt < new Date()) {
-        throw new BadRequestException(`Invitation has expired. Debug: ${JSON.stringify(debugInfo)}`);
+        throw HttpExceptionHelper.badRequest(`Invitation has expired. Debug: ${JSON.stringify(debugInfo)}`);
       }
     }
 
@@ -594,11 +595,11 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     if (invite.status !== InvitationStatus.USED) {
-      throw new BadRequestException('Invitation has not been accepted yet');
+      throw HttpExceptionHelper.badRequest('Invitation has not been accepted yet');
     }
 
     // Generate consultation room link
@@ -684,7 +685,7 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     // Check if invitation has expired based on consultation time
@@ -699,7 +700,7 @@ export class InviteService {
 
       if (now >= consultationTime) {
         this.logger.warn(`[getInviteDetails] ❌ Consultation time has passed`);
-        throw new BadRequestException('Consultation time has passed. Invitation is no longer valid.');
+        throw HttpExceptionHelper.badRequest('Consultation time has passed. Invitation is no longer valid.');
       }
 
       this.logger.log(`[getInviteDetails] ✅ Invitation is still valid`);
@@ -707,7 +708,7 @@ export class InviteService {
       // If no consultation scheduled date, fall back to expiresAt
       const now = this.getCurrentTimeIST();
       if (invite.expiresAt < now) {
-        throw new BadRequestException('Invitation has expired');
+        throw HttpExceptionHelper.badRequest('Invitation has expired');
       }
     }
 
@@ -745,7 +746,7 @@ export class InviteService {
     });
 
     if (!invite) {
-      throw new NotFoundException('Invitation not found');
+      throw HttpExceptionHelper.notFound('Invitation not found');
     }
 
     // Check if consultation time is valid (shouldn't be in the past)
@@ -759,7 +760,7 @@ export class InviteService {
 
       if (now > consultationTime) {
         this.logger.warn(`[joinConsultationViaReminder] ❌ Consultation time has passed`);
-        throw new BadRequestException('Consultation time has passed.');
+        throw HttpExceptionHelper.badRequest('Consultation time has passed.');
       }
 
       this.logger.log(`[joinConsultationViaReminder] ✅ Time check passed`);
@@ -779,7 +780,7 @@ export class InviteService {
 
     // Even if already USED, we allow the join to proceed
     if (invite.status !== InvitationStatus.USED) {
-      throw new BadRequestException('Invitation is not valid for joining');
+      throw HttpExceptionHelper.badRequest('Invitation is not valid for joining');
     }
 
     // Return consultation details for frontend to redirect to waiting room

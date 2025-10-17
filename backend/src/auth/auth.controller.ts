@@ -96,7 +96,6 @@ export class AuthController {
 
     const user = req.user as any;
 
-    // Better logging
     this.logger.debug(`req.user raw: ${JSON.stringify(user)}`);
 
     if (!user) {

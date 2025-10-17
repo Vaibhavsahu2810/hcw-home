@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { HttpExceptionHelper } from '../common/helpers/execption/http-exception.helper';
 import { DatabaseService } from '../database/database.service';
 import { ConsultationStatus, UserRole } from '@prisma/client';
 import {
@@ -53,11 +54,11 @@ export class WaitingRoomService {
     });
 
     if (!practitioner) {
-      throw new NotFoundException('Practitioner not found');
+      throw HttpExceptionHelper.notFound('Practitioner not found');
     }
 
     if (practitioner.role !== UserRole.PRACTITIONER) {
-      throw new BadRequestException('User is not a practitioner');
+      throw HttpExceptionHelper.badRequest('User is not a practitioner');
     }
 
     const skip = (page - 1) * limit;
@@ -182,17 +183,17 @@ export class WaitingRoomService {
     });
 
     if (!consultation) {
-      throw new NotFoundException('Consultation not found');
+      throw HttpExceptionHelper.notFound('Consultation not found');
     }
 
     if (!consultation.waitingRoomEnabled) {
-      throw new BadRequestException('Waiting room is not enabled for this consultation');
+      throw HttpExceptionHelper.badRequest('Waiting room is not enabled for this consultation');
     }
 
     // Verify user is a participant
     const participant = consultation.participants[0];
     if (!participant) {
-      throw new BadRequestException('User is not a participant in this consultation');
+      throw HttpExceptionHelper.badRequest('User is not a participant in this consultation');
     }
 
     // Update consultation status to WAITING if not already
@@ -331,16 +332,16 @@ export class WaitingRoomService {
     });
 
     if (!consultation) {
-      throw new NotFoundException('Consultation not found');
+      throw HttpExceptionHelper.notFound('Consultation not found');
     }
 
     const patient = consultation.participants[0];
     if (!patient) {
-      throw new NotFoundException('Patient not found in consultation');
+      throw HttpExceptionHelper.notFound('Patient not found in consultation');
     }
 
     if (!patient.inWaitingRoom) {
-      throw new BadRequestException('Patient is not in waiting room');
+      throw HttpExceptionHelper.badRequest('Patient is not in waiting room');
     }
 
     // Admit patient
@@ -431,13 +432,13 @@ export class WaitingRoomService {
     });
 
     if (!consultation) {
-      throw new NotFoundException('Consultation not found');
+      throw HttpExceptionHelper.notFound('Consultation not found');
     }
 
     // Verify user has permission to join
     const userParticipant = consultation.participants.find(p => p.userId === userId);
     if (!userParticipant && role !== UserRole.PRACTITIONER) {
-      throw new BadRequestException('User is not authorized to join this consultation');
+      throw HttpExceptionHelper.badRequest('User is not authorized to join this consultation');
     }
 
     // If practitioner joining, create participant record if doesn't exist

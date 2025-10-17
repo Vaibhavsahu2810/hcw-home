@@ -266,6 +266,7 @@ enum MessageService {
 model Consultation {
   id                   Int                @id @default(autoincrement())
   scheduledDate        DateTime?
+  timezone             String? 
   createdAt            DateTime?
   startedAt            DateTime?
   closedAt             DateTime?
