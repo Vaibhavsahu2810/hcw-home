@@ -395,14 +395,22 @@ export class ConsultationController {
     @Param('id', ConsultationIdParamPipe) id: number,
     @Body() body: JoinConsultationDto,
   ): Promise<any> {
-    const result = await this.consultationService.joinAsPractitioner(
-      id,
-      body.userId,
-    );
-    return {
-      ...result,
-      timestamp: new Date().toISOString(),
-    };
+    try {
+      const result = await this.consultationService.joinAsPractitioner(
+        id,
+        body.userId,
+      );
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Successfully joined consultation',
+        consultationId: id,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error('[joinPractitioner] Error:', error);
+      throw error;
+    }
   }
 
   @Post('/admit')

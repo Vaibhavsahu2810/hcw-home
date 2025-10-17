@@ -1,9 +1,8 @@
 import {
   Injectable,
   Logger,
-  BadRequestException,
-  NotFoundException,
 } from '@nestjs/common';
+import { HttpExceptionHelper } from '../common/helpers/execption/http-exception.helper';
 import { DatabaseService } from 'src/database/database.service';
 import { CreateMessageDto, MessageType } from './dto/create-message.dto';
 import { ReadMessageDto } from './dto/read-message.dto';
@@ -149,7 +148,7 @@ export class ChatService {
       });
 
       if (!message) {
-        throw new NotFoundException('Message not found or access denied');
+        throw HttpExceptionHelper.notFound('Message not found or access denied');
       }
 
       await this.verifyConsultationAccess(data.userId, data.consultationId);
@@ -208,9 +207,7 @@ export class ChatService {
       });
 
       if (messageCount !== messageIds.length) {
-        throw new BadRequestException(
-          'Some messages do not belong to this consultation',
-        );
+        throw HttpExceptionHelper.badRequest('Some messages do not belong to this consultation');
       }
 
       // Create read receipts for all messages that don't have them yet
@@ -453,7 +450,7 @@ export class ChatService {
       });
 
       if (!message) {
-        throw new NotFoundException('Message not found or access denied');
+        throw HttpExceptionHelper.notFound('Message not found or access denied');
       }
 
       // Soft delete by updating content
@@ -492,14 +489,14 @@ export class ChatService {
       });
 
       if (!message) {
-        throw new NotFoundException('Message not found or access denied');
+        throw HttpExceptionHelper.notFound('Message not found or access denied');
       }
 
       // Check if message is too old to edit (configurable timeout)
       const editTimeoutMs = this.configService.chatMessageEditTimeoutMinutes * 60 * 1000;
       const editDeadline = new Date(Date.now() - editTimeoutMs);
       if (message.createdAt < editDeadline) {
-        throw new BadRequestException(`Message is too old to edit (limit: ${this.configService.chatMessageEditTimeoutMinutes} minutes)`);
+        throw HttpExceptionHelper.badRequest(`Message is too old to edit (limit: ${this.configService.chatMessageEditTimeoutMinutes} minutes)`);
       }
 
       const updatedMessage = await this.prisma.message.update({
@@ -551,9 +548,7 @@ export class ChatService {
     });
 
     if (!participant) {
-      throw new BadRequestException(
-        'User does not have access to this consultation',
-      );
+      throw HttpExceptionHelper.badRequest('User does not have access to this consultation');
     }
 
     return participant;
@@ -601,13 +596,11 @@ export class ChatService {
 
     if (file.size > maxSize) {
       const maxSizeMB = Math.round(maxSize / (1024 * 1024));
-      throw new BadRequestException(
-        `File size too large. Maximum size is ${maxSizeMB}MB.`,
-      );
+      throw HttpExceptionHelper.badRequest(`File size too large. Maximum size is ${maxSizeMB}MB.`);
     }
 
     if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException(`File type '${file.mimetype}' not allowed. Supported types: images, documents, audio, video, and archives.`);
+      throw HttpExceptionHelper.badRequest(`File type '${file.mimetype}' not allowed. Supported types: images, documents, audio, video, and archives.`);
     }
 
     this.validateFileSpecificRules(file);
@@ -617,14 +610,14 @@ export class ChatService {
     if (file.mimetype.startsWith('video/')) {
       const videoMaxSize = Math.min(this.configService.maxFileUploadSizeBytes, 50 * 1024 * 1024);
       if (file.size > videoMaxSize) {
-        throw new BadRequestException(`Video files cannot exceed ${Math.round(videoMaxSize / (1024 * 1024))}MB`);
+        throw HttpExceptionHelper.badRequest(`Video files cannot exceed ${Math.round(videoMaxSize / (1024 * 1024))}MB`);
       }
     }
 
     if (file.mimetype.startsWith('audio/')) {
-      const audioMaxSize = Math.min(this.configService.maxFileUploadSizeBytes, 25 * 1024 * 1024); 
+      const audioMaxSize = Math.min(this.configService.maxFileUploadSizeBytes, 25 * 1024 * 1024);
       if (file.size > audioMaxSize) {
-        throw new BadRequestException(`Audio files cannot exceed ${Math.round(audioMaxSize / (1024 * 1024))}MB`);
+        throw HttpExceptionHelper.badRequest(`Audio files cannot exceed ${Math.round(audioMaxSize / (1024 * 1024))}MB`);
       }
     }
 
@@ -632,7 +625,7 @@ export class ChatService {
     if (file.mimetype === 'application/dicom') {
       const dicomMaxSize = Math.min(this.configService.maxFileUploadSizeBytes, 100 * 1024 * 1024); // 100MB max for DICOM
       if (file.size > dicomMaxSize) {
-        throw new BadRequestException(`DICOM files cannot exceed ${Math.round(dicomMaxSize / (1024 * 1024))}MB`);
+        throw HttpExceptionHelper.badRequest(`DICOM files cannot exceed ${Math.round(dicomMaxSize / (1024 * 1024))}MB`);
       }
     }
   }

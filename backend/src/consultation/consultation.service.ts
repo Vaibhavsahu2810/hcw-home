@@ -3,7 +3,7 @@ import {
   Inject,
   Logger,
   HttpStatus,
-  NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
@@ -83,10 +83,21 @@ export class ConsultationService {
     private readonly consultationMediaSoupService: ConsultationMediaSoupService,
     private readonly mediasoupSessionService: MediasoupSessionService,
     @Inject(CONSULTATION_GATEWAY_TOKEN)
-    private readonly consultationGateway: IConsultationGateway,
+    private consultationGateway: IConsultationGateway,
     private readonly reminderService: ReminderService,
     private readonly chatService: ChatService,
-  ) { }
+  ) {
+    // Log gateway injection status at construction time
+    this.logger.log(`ConsultationService constructor. Gateway: ${this.consultationGateway ? 'Available' : 'NULL'}`);
+
+    // Delayed check to see if gateway becomes available after module initialization
+    setTimeout(() => {
+      this.logger.log(`ConsultationService post-init. Gateway: ${this.consultationGateway ? 'Available' : 'NULL'}`);
+      if (this.consultationGateway) {
+        this.logger.log(`Gateway.server: ${this.consultationGateway.server ? 'Available' : 'NULL'}`);
+      }
+    }, 2000);
+  }
 
   async addParticipantToConsultation(
     addParticipantDto: AddParticipantDto,
@@ -245,6 +256,12 @@ export class ConsultationService {
 
       // Emit real-time notification
       if (this.consultationGateway.server) {
+        if (!this.consultationGateway.server) {
+          this.logger.error('[joinAsPractitioner] consultationGateway.server is null or undefined');
+          throw HttpExceptionHelper.internalServerError(
+            'Consultation server is not available. Please try again later.'
+          );
+        }
         this.consultationGateway.server
           .to(`consultation:${consultationId}`)
           .emit('participant_invited', {
@@ -660,7 +677,7 @@ export class ConsultationService {
     });
 
     if (!practitioner) {
-      throw new NotFoundException('Practitioner not found');
+      throw HttpExceptionHelper.notFound('Practitioner not found');
     }
 
     // Determine if contact is email or phone
@@ -788,6 +805,7 @@ export class ConsultationService {
       specialityId: createDto.specialityId || null,
       symptoms: createDto.symptoms || null,
       scheduledDate: scheduledDate || null,
+      timezone: createDto.timezone || null,
       status: ConsultationStatus.SCHEDULED,
       createdAt: new Date(),
       startedAt: new Date(),
@@ -1554,7 +1572,9 @@ export class ConsultationService {
     consultationId: number,
     practitionerId: number,
   ): Promise<ApiResponseDto<JoinConsultationResponseDto>> {
+    this.logger.log(`🎯 Starting joinAsPractitioner: consultationId=${consultationId}, practitionerId=${practitionerId}`);
     try {
+      this.logger.log(`📍 Step 1: Fetching consultation ${consultationId}`);
       const consultation = await this.db.consultation.findUnique({
         where: { id: consultationId },
         include: {
@@ -1564,29 +1584,37 @@ export class ConsultationService {
       });
 
       if (!consultation) {
+        this.logger.error(`❌ Consultation ${consultationId} not found`);
         throw HttpExceptionHelper.notFound('Consultation not found');
       }
+      this.logger.log(`✅ Consultation found: status=${consultation.status}, ownerId=${consultation.ownerId}`);
 
+      this.logger.log(`📍 Step 2: Fetching practitioner ${practitionerId}`);
       const practitioner = await this.db.user.findUnique({
         where: { id: practitionerId },
       });
 
       if (!practitioner) {
+        this.logger.error(`❌ Practitioner ${practitionerId} not found`);
         throw HttpExceptionHelper.notFound('Practitioner does not exist');
       }
+      this.logger.log(`✅ Practitioner found: email=${practitioner.email}`);
 
       if (consultation.ownerId !== practitionerId) {
+        this.logger.error(`❌ Authorization failed: consultation owner ${consultation.ownerId} != practitioner ${practitionerId}`);
         throw HttpExceptionHelper.forbidden(
           'Not the practitioner for this consultation',
         );
       }
 
       if (consultation.status === ConsultationStatus.COMPLETED) {
+        this.logger.error(`❌ Consultation already completed`);
         throw HttpExceptionHelper.badRequest(
           'Cannot join completed consultation',
         );
       }
 
+      this.logger.log(`📍 Step 3: Upserting participant`);
       const participantData = {
         consultationId,
         userId: practitionerId,
@@ -1602,101 +1630,138 @@ export class ConsultationService {
         create: participantData,
         update: { isActive: true, joinedAt: new Date() },
       });
+      this.logger.log(`✅ Participant upserted successfully`);
 
       if (consultation.status !== ConsultationStatus.ACTIVE) {
+        this.logger.log(`📍 Step 4: Updating consultation status to ACTIVE`);
         await this.db.consultation.update({
           where: { id: consultationId },
           data: { status: ConsultationStatus.ACTIVE },
         });
         consultation.status = ConsultationStatus.ACTIVE;
+        this.logger.log(`✅ Consultation status updated to ACTIVE`);
       }
+
+      this.logger.log(`📍 Step 5: Setting up mediasoup router`);
       let routerCreated = false;
       try {
+        this.logger.log(`🔍 Checking for existing router for consultation ${consultationId}`);
         let mediasoupRouter =
           this.mediasoupSessionService.getRouter(consultationId);
         if (!mediasoupRouter) {
+          this.logger.log(`🔧 No existing router found, creating new router...`);
           mediasoupRouter =
             await this.mediasoupSessionService.createRouterForConsultation(
               consultationId,
             );
           routerCreated = true;
           this.logger.log(
-            `Mediasoup router created for consultation ${consultationId} (practitioner join)`,
+            `✅ Mediasoup router created successfully for consultation ${consultationId}`,
           );
+        } else {
+          this.logger.log(`✅ Existing router found for consultation ${consultationId}`);
         }
       } catch (mediaErr) {
         this.logger.error(
-          `Mediasoup router setup failed for consultation ${consultationId}: ${mediaErr.message}`,
-          mediaErr.stack,
+          `❌ Mediasoup router setup failed for consultation ${consultationId}`,
         );
+        this.logger.error(`Error name: ${mediaErr.name}`);
+        this.logger.error(`Error message: ${mediaErr.message}`);
+        this.logger.error(`Error stack: ${mediaErr.stack}`);
         throw HttpExceptionHelper.internalServerError(
           'Failed to setup media session for consultation',
-          undefined, // requestId
-          undefined, // path
-          mediaErr, // error
+          undefined,
+          undefined,
+          mediaErr,
         );
       }
 
-      if (this.consultationGateway.server) {
-        const pjRequestId = uuidv4();
-        this.consultationGateway.server
-          .to(`consultation:${consultationId}`)
-          .emit('practitioner_joined', {
-            practitionerId,
-            consultationId,
-            message: 'Practitioner has joined the consultation',
-            requestId: pjRequestId,
-            timestamp: new Date().toISOString(),
-          });
+      // Check if consultation gateway and server are available with detailed logging
+      this.logger.log(`[joinAsPractitioner] Checking gateway availability...`);
+      this.logger.log(`[joinAsPractitioner] typeof consultationGateway: ${typeof this.consultationGateway}`);
+      this.logger.log(`[joinAsPractitioner] consultationGateway is null: ${this.consultationGateway === null}`);
+      this.logger.log(`[joinAsPractitioner] consultationGateway is undefined: ${this.consultationGateway === undefined}`);
+      this.logger.log(`[joinAsPractitioner] consultationGateway truthy: ${!!this.consultationGateway}`);
 
-        // schedule a gentle session warning/cleanup if practitioner does not start media within configured time
-        try {
-          const warningMs = Math.max(30 * 1000, Math.floor(this.configService.sessionTimeoutMs / 10));
-          const cleanupMs = Math.max(5 * 60 * 1000, this.configService.sessionTimeoutMs);
+      if (!this.consultationGateway) {
+        this.logger.error('[joinAsPractitioner] consultationGateway is null or undefined');
+        throw HttpExceptionHelper.internalServerError(
+          'Consultation gateway is not available. Please try again later.'
+        );
+      }
 
-          // clear any existing timers
-          const existingTimers = this.sessionTimers.get(consultationId);
-          if (existingTimers?.warning) clearTimeout(existingTimers.warning);
-          if (existingTimers?.cleanup) clearTimeout(existingTimers.cleanup);
+      this.logger.log(`[joinAsPractitioner] Gateway available, checking server property...`);
+      this.logger.log(`[joinAsPractitioner] typeof gateway.server: ${typeof this.consultationGateway.server}`);
+      this.logger.log(`[joinAsPractitioner] gateway.server is null: ${this.consultationGateway.server === null}`);
+      this.logger.log(`[joinAsPractitioner] gateway.server is undefined: ${this.consultationGateway.server === undefined}`);
 
-          const warningTimer = setTimeout(() => {
-            try {
-              this.consultationGateway.server
-                .to(`consultation:${consultationId}`)
-                .emit('practitioner_session_warning', {
-                  consultationId,
-                  message: 'Practitioner joined but session not started; sending reminder/cleanup in a short while',
-                  requestId: pjRequestId,
-                  timestamp: new Date().toISOString(),
-                });
-            } catch (e) {
-              this.logger.warn(`Failed to emit practitioner_session_warning for ${consultationId}: ${e?.message ?? e}`);
-            }
-          }, warningMs);
+      if (!this.consultationGateway.server) {
+        this.logger.error('[joinAsPractitioner] consultationGateway.server is null or undefined');
+        throw HttpExceptionHelper.internalServerError(
+          'Consultation server is not available. Please try again later.'
+        );
+      }
 
-          const cleanupTimer = setTimeout(() => {
-            try {
-              this.consultationGateway.server
-                .to(`consultation:${consultationId}`)
-                .emit('practitioner_session_cleanup', {
-                  consultationId,
-                  message: 'Practitioner did not start session; marking consultation for cleanup',
-                  requestId: pjRequestId,
-                  timestamp: new Date().toISOString(),
-                });
+      this.logger.log(`[joinAsPractitioner] ✅ Both gateway and server are available`);
 
-              // Optionally mark consultation as SCHEDULED again or take other cleanup actions here
-            } catch (e) {
-              this.logger.warn(`Failed to emit practitioner_session_cleanup for ${consultationId}: ${e?.message ?? e}`);
-            } finally {
-              this.sessionTimers.delete(consultationId);
-            }
-          }, cleanupMs);
+      const pjRequestId = uuidv4();
+      this.consultationGateway.server
+        .to(`consultation:${consultationId}`)
+        .emit('practitioner_joined', {
+          practitionerId,
+          consultationId,
+          message: 'Practitioner has joined the consultation',
+          requestId: pjRequestId,
+          timestamp: new Date().toISOString(),
+        });
 
-          this.sessionTimers.set(consultationId, { warning: warningTimer, cleanup: cleanupTimer });
-        } catch (e) {
-          this.logger.warn(`Failed to schedule practitioner session timer: ${e?.message ?? e}`);
-        }
+      // schedule a gentle session warning/cleanup if practitioner does not start media within configured time
+      try {
+        const warningMs = Math.max(30 * 1000, Math.floor(this.configService.sessionTimeoutMs / 10));
+        const cleanupMs = Math.max(5 * 60 * 1000, this.configService.sessionTimeoutMs);
+
+        // clear any existing timers
+        const existingTimers = this.sessionTimers.get(consultationId);
+        if (existingTimers?.warning) clearTimeout(existingTimers.warning);
+        if (existingTimers?.cleanup) clearTimeout(existingTimers.cleanup);
+
+        const warningTimer = setTimeout(() => {
+          try {
+            this.consultationGateway.server
+              .to(`consultation:${consultationId}`)
+              .emit('practitioner_session_warning', {
+                consultationId,
+                message: 'Practitioner joined but session not started; sending reminder/cleanup in a short while',
+                requestId: pjRequestId,
+                timestamp: new Date().toISOString(),
+              });
+          } catch (e) {
+            this.logger.warn(`Failed to emit practitioner_session_warning for ${consultationId}: ${e?.message ?? e}`);
+          }
+        }, warningMs);
+
+        const cleanupTimer = setTimeout(() => {
+          try {
+            this.consultationGateway.server
+              .to(`consultation:${consultationId}`)
+              .emit('practitioner_session_cleanup', {
+                consultationId,
+                message: 'Practitioner did not start session; marking consultation for cleanup',
+                requestId: pjRequestId,
+                timestamp: new Date().toISOString(),
+              });
+
+            // Optionally mark consultation as SCHEDULED again or take other cleanup actions here
+          } catch (e) {
+            this.logger.warn(`Failed to emit practitioner_session_cleanup for ${consultationId}: ${e?.message ?? e}`);
+          } finally {
+            this.sessionTimers.delete(consultationId);
+          }
+        }, cleanupMs);
+
+        this.sessionTimers.set(consultationId, { warning: warningTimer, cleanup: cleanupTimer });
+      } catch (e) {
+        this.logger.warn(`Failed to schedule practitioner session timer: ${e?.message ?? e}`);
       }
 
       if (routerCreated && this.consultationGateway.server) {
@@ -3860,7 +3925,7 @@ export class ConsultationService {
       });
 
       if (!consultation) {
-        throw new NotFoundException(`Consultation with ID ${consultationId} not found`);
+        throw HttpExceptionHelper.notFound(`Consultation with ID ${consultationId} not found`);
       }
 
       let currentStage: 'waiting_room' | 'consultation_room' | 'completed';
@@ -3920,7 +3985,7 @@ export class ConsultationService {
       };
 
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof HttpExceptionHelper.notFound().constructor) {
         throw error;
       }
       this.logger.error(`Failed to get session status for consultation ${consultationId}:`, error);

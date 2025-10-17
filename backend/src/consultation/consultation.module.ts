@@ -33,16 +33,19 @@ import { ReminderModule } from 'src/reminder/reminder.module';
   ],
   controllers: [ConsultationController],
   providers: [
+    ConsultationGateway,
     ConsultationService,
     ConsultationMediaSoupService,
-    ConsultationGateway,
     ConsultationCleanupService,
     ConsultationUtilityService,
     EnhancedRealtimeService,
     WaitingRoomService,
     {
       provide: CONSULTATION_GATEWAY_TOKEN,
-      useExisting: forwardRef(() => ConsultationGateway),
+      useFactory: (gateway: ConsultationGateway) => {
+        return gateway;
+      },
+      inject: [ConsultationGateway],
     },
   ],
   exports: [

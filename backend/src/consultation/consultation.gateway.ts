@@ -1,6 +1,7 @@
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
@@ -9,7 +10,7 @@ import {
   WsException,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger, UseGuards, Inject, forwardRef } from '@nestjs/common';
 import { WsAuthGuard } from 'src/auth/guards/ws-auth.guard';
 import { ConsultationService } from './consultation.service';
 import { ConsultationUtilityService } from './consultation-utility.service';
@@ -52,21 +53,15 @@ function sanitizePayload<T extends object, K extends keyof T>(
 @WebSocketGateway({
   namespace: '/consultation',
   cors: {
-    origin: (origin, callback) => {
-      // Use ConfigService to get allowed origins
-      const allowedOrigins = (globalThis['configService']?.corsOrigins) || ['http://localhost:4200', 'http://localhost:4201', 'http://localhost:4202'];
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: '*', // Allow all origins in development
     credentials: true,
     methods: ['GET', 'POST'],
+    allowedHeaders: ['*'],
+    transports: ['websocket', 'polling'],
   },
 })
 export class ConsultationGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, IConsultationGateway {
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, IConsultationGateway {
   @WebSocketServer()
   server: Server;
 
@@ -90,6 +85,7 @@ export class ConsultationGateway
 
   constructor(
     private readonly databaseService: DatabaseService,
+    @Inject(forwardRef(() => ConsultationService))
     private readonly consultationService: ConsultationService,
     private readonly consultationUtilityService: ConsultationUtilityService,
     private readonly consultationMediaSoupService: ConsultationMediaSoupService,
@@ -100,6 +96,11 @@ export class ConsultationGateway
     private readonly chatService: ChatService,
     private readonly waitingRoomService: WaitingRoomService,
   ) { }
+
+  afterInit(server: Server) {
+    this.logger.log('🚀 ConsultationGateway initialized');
+    this.logger.log(`✅ WebSocket server is ready: ${!!server}`);
+  }
 
   async handleConnection(client: Socket) {
     try {
@@ -2568,7 +2569,6 @@ export class ConsultationGateway
   }
 
   emitToRoom(consultationId: number, event: string, data: any): void {
-    // Use the same consultation room naming used throughout the gateway
     this.server.to(`consultation:${consultationId}`).emit(event, data);
   }
 
@@ -2681,7 +2681,6 @@ export class ConsultationGateway
     }
   }
 
-  // ================ ENHANCED MESSAGING HANDLERS ================
 
   @SubscribeMessage('send_message')
   async handleSendMessage(
@@ -2970,7 +2969,6 @@ export class ConsultationGateway
     }
   }
 
-  // ================ ENHANCED HELPER METHODS ================
 
   private getMediaErrorGuidance(errorType: string): string {
     switch (errorType) {
